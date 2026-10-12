@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PrivChat</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- INICIAR SESIÓN -->
+  <section id="screen-login" class="screen center" hidden>
+    <form id="login-form" class="card">
+      <h1>PrivChat</h1>
+      <p class="muted">Chat y llamadas directas entre computadores, sin servidor central.</p>
+      <label>Usuario o Gmail
+        <input id="login-user" autocomplete="username" required>
+      </label>
+      <label>Contraseña
+        <input id="login-pass" type="password" autocomplete="current-password" required>
+      </label>
+      <label class="check"><input id="login-show" type="checkbox"> Mostrar contraseña</label>
+      <label class="check"><input id="login-remember" type="checkbox"> Recordarme en este dispositivo</label>
+      <button class="primary" type="submit">Entrar</button>
+      <button id="btn-login-key" type="button">Entrar con clave de acceso (pendrive)</button>
+      <p id="login-error" class="error" role="alert"></p>
+      <p class="muted">¿No tienes cuenta? <a href="#" id="to-signup">Crear cuenta</a></p>
+    </form>
+  </section>
+
+  <!-- CREAR CUENTA -->
+  <section id="screen-signup" class="screen center" hidden>
+    <form id="signup-form" class="card">
+      <h1>Crear cuenta</h1>
+      <p class="muted">La cuenta se guarda solo en este computador, cifrada con tu contraseña.</p>
+      <label>Gmail
+        <input id="signup-email" type="email" autocomplete="email" placeholder="nombre@gmail.com" required>
+      </label>
+      <label>Nombre de usuario
+        <input id="signup-user" autocomplete="username" required>
+      </label>
+      <label>Contraseña (mínimo 10 caracteres; mejor una frase larga)
+        <input id="signup-pass" type="password" autocomplete="new-password" required>
+      </label>
+      <label>Repite la contraseña
+        <input id="signup-pass2" type="password" autocomplete="new-password" required>
+      </label>
+      <label class="check"><input id="signup-show" type="checkbox"> Mostrar contraseñas</label>
+      <button id="btn-signup" class="primary" type="submit">Crear cuenta</button>
+      <p id="signup-error" class="error" role="alert"></p>
+      <p class="muted">¿Ya tienes cuenta? <a href="#" id="to-login">Iniciar sesión</a></p>
+    </form>
+  </section>
+
+  <!-- OFRECER CLAVE DE ACCESO (después de crear la cuenta) -->
+  <section id="screen-keyfile" class="screen center" hidden>
+    <div class="card">
+      <h1>Clave de acceso en pendrive</h1>
+      <p>Opcional. Se guarda un archivo en tu pendrive y, al conectarlo, la app inicia sesión sola.</p>
+      <p class="muted">Quien tenga ese pendrive podrá entrar a tu cuenta: guárdalo como una llave. Puedes crearla o quitarla después en Ajustes.</p>
+      <button id="btn-key-create" class="primary" type="button">Crear clave de acceso</button>
+      <button id="btn-key-skip" type="button">Ahora no</button>
+      <p id="key-result" class="ok" role="status"></p>
+      <button id="btn-key-next" type="button" hidden>Continuar</button>
+    </div>
+  </section>
+
+  <!-- PERMISOS -->
+  <section id="screen-permissions" class="screen center" hidden>
+    <div class="card">
+      <h1>Permisos</h1>
+      <p class="muted">Esto es lo único que la app necesita para funcionar.</p>
+      <ul class="plain">
+        <li><strong>Micrófono</strong>: para las llamadas. <button id="btn-mic" type="button">Permitir micrófono</button> <span id="mic-status" class="muted"></span></li>
+        <li><strong>Red</strong>: para conectarte con tus contactos. Si el sistema pregunta por el firewall, acepta el acceso en redes privadas.</li>
+        <li><strong>Notificaciones</strong>: avisos de mensajes y llamadas. El sistema puede preguntarte la primera vez.</li>
+      </ul>
+      <p class="muted">La app no usa cámara ni accede a tus archivos, salvo el pendrive si activas la clave de acceso.</p>
+      <button id="btn-perm-next" class="primary" type="button">Continuar</button>
+    </div>
+  </section>
+
+  <!-- APP PRINCIPAL -->
+  <section id="screen-main" class="screen" hidden>
+    <aside id="sidebar">
+      <div class="me">
+        <div class="row">
+          <span id="me-avatar" class="clickable" role="button" tabindex="0" title="Ver y editar mi perfil"></span>
+          <div>
+            <strong id="me-name"></strong>
+            <div id="me-verified" class="small verified" hidden>✓ Nombre registrado</div>
+          </div>
+        </div>
+        <div class="small muted">Tu código (compártelo con tus amigos)</div>
+        <code id="me-code"></code>
+        <div class="row">
+          <button id="btn-copy" type="button">Copiar código</button>
+          <button id="btn-settings" type="button">Ajustes</button>
+        </div>
+        <div id="node-status" class="small muted"></div>
+      </div>
+
+      <div id="requests-box" hidden>
+        <h2>Solicitudes</h2>
+        <p class="small muted">El nombre lo escribe quien te contacta y no prueba que sea quien dice ser. Acepta solo si reconoces su código por otro medio.</p>
+        <ul id="requests" class="plain"></ul>
+      </div>
+
+      <h2>Contactos</h2>
+      <ul id="contacts" class="plain"></ul>
+
+      <h2>Servidores</h2>
+      <ul id="servers" class="plain"></ul>
+      <div class="row">
+        <button id="btn-srv-create" type="button">Crear servidor</button>
+        <button id="btn-srv-join" type="button">Unirme</button>
+      </div>
+
+      <form id="add-form">
+        <input id="add-code" placeholder="Código del contacto" autocomplete="off" required>
+        <input id="add-name" placeholder="Nombre (opcional)" autocomplete="off">
+        <button type="submit">Añadir contacto</button>
+        <p id="add-error" class="error small" role="alert"></p>
+      </form>
+    </aside>
+
+    <main id="chat">
+      <header id="chat-header">
+        <span id="chat-avatar"></span>
+        <span id="chat-title">Elige un contacto para empezar</span>
+        <span class="spacer"></span>
+        <button id="btn-profile" type="button" hidden>Ver perfil</button>
+        <button id="btn-call" type="button" hidden>Llamar</button>
+        <button id="btn-remove" type="button" hidden>Eliminar contacto</button>
+      </header>
+      <div id="messages"></div>
+      <form id="send-form" hidden>
+        <input id="send-text" placeholder="Escribe un mensaje" autocomplete="off" maxlength="4000">
+        <button class="primary" type="submit">Enviar</button>
+      </form>
+      <p id="chat-hint" class="small muted" hidden>⏳ = se entregará cuando tu contacto esté conectado. ✓ = entregado.</p>
+    </main>
+
+      <!-- SERVIDOR (alojado en el PC de quien lo creó) -->
+    <main id="server-view" hidden>
+      <header class="srv-head">
+        <strong id="srv-name"></strong>
+        <span id="srv-role" class="small muted"></span>
+        <span id="srv-host" class="small"></span>
+        <span class="spacer"></span>
+        <button id="srv-invite" type="button" hidden>Invitar</button>
+        <button id="srv-rename" type="button" hidden>Renombrar</button>
+        <button id="srv-leave" type="button">Salir</button>
+      </header>
+      <div class="srv-body">
+        <div class="srv-col">
+          <div id="srv-channels" class="srv-channels"></div>
+          <div id="srv-messages"></div>
+          <form id="srv-form" class="sendform">
+            <input id="srv-text" autocomplete="off" maxlength="2000" placeholder="Escribe en el canal">
+            <button class="primary" type="submit">Enviar</button>
+          </form>
+        </div>
+        <aside id="srv-side">
+          <h3>Miembros</h3>
+          <ul id="srv-members" class="plain"></ul>
+          <div id="srv-bans-box" hidden>
+            <h3>Baneados</h3>
+            <ul id="srv-bans" class="plain small"></ul>
+          </div>
+          <div id="srv-audit-box" hidden>
+            <h3>Registro</h3>
+            <ul id="srv-audit" class="plain small"></ul>
+          </div>
+          <p class="small muted">El anfitrión puede leer todo lo que se escribe aquí.</p>
+        </aside>
+      </div>
+    </main>
+  </section>
+
+  <!-- PREGUNTAR UN DATO -->
+  <dialog id="ask-dialog">
+    <h2 id="ask-title"></h2>
+    <p id="ask-text" class="small muted"></p>
+    <input id="ask-input" autocomplete="off">
+    <div class="row ask-row"><button id="ask-cancel" type="button">Cancelar</button><span class="spacer"></span><button id="ask-ok" class="primary" type="button">Aceptar</button></div>
+  </dialog>
+
+  <!-- PERFIL (ver) -->
+  <dialog id="profile-dialog">
+    <div class="row">
+      <span id="pv-avatar"></span>
+      <div>
+        <h2 id="pv-name"></h2>
+        <div id="pv-status" class="muted"></div>
+      </div>
+      <span class="spacer"></span>
+      <button id="pv-edit" type="button" hidden>Editar mi perfil</button>
+      <button id="pv-close" type="button">Cerrar</button>
+    </div>
+    <div id="pv-fonts" class="notice" hidden>
+      <span id="pv-fonts-text"></span>
+      <button id="pv-fonts-yes" type="button" class="primary">Descargar y usar</button>
+      <button id="pv-fonts-no" type="button">No, usar fuente normal</button>
+    </div>
+    <p id="pv-empty" class="muted" hidden></p>
+    <div id="pv-page" class="page-wrap"></div>
+  </dialog>
+
+  <!-- PERFIL (editor de mi página personal) -->
+  <section id="editor" hidden>
+    <div class="ed-bar">
+      <strong>Editar mi perfil</strong>
+      <label class="inline">Estado <input id="ed-status" maxlength="80" placeholder="Una frase corta"></label>
+      <button id="ed-avatar-btn" type="button">Foto de perfil</button>
+      <button id="ed-avatar-adjust" type="button">Ajustar foto</button>
+      <button id="ed-fonts-btn" type="button">Mis fuentes</button>
+      <button id="ed-add-text" type="button">+ Texto</button>
+      <button id="ed-add-image" type="button">+ Imagen</button>
+      <span class="spacer"></span>
+      <button id="ed-cancel" type="button">Cancelar</button>
+      <button id="ed-save" class="primary" type="button">Guardar</button>
+    </div>
+    <div class="ed-bar">
+      <label class="inline">Fondo <input id="ed-bg-color" type="color"></label>
+      <button id="ed-bg-image" type="button">Imagen de fondo</button>
+      <button id="ed-bg-clear" type="button">Quitar imagen</button>
+      <label class="inline">Ajuste
+        <select id="ed-bg-fit"><option value="cover">Cubrir</option><option value="contain">Contener</option></select>
+      </label>
+      <label class="inline">Alto de la página <input id="ed-height" type="number" min="200" max="3000" step="50"></label>
+      <span id="ed-msg" class="small error" role="status"></span>
+    </div>
+    <div class="ed-main">
+      <div id="ed-stage" class="page-wrap"></div>
+      <aside id="ed-props"></aside>
+    </div>
+    <input id="ed-file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+    <input id="ed-font-file" type="file" accept=".woff2,.woff,.ttf,.otf" hidden>
+  </section>
+
+  <!-- RECORTE DE LA FOTO DE PERFIL -->
+  <dialog id="crop-dialog">
+    <h2>Ajusta tu foto de perfil</h2>
+    <p class="small muted">Arrastra la imagen para moverla y usa el control para acercarla. Así se verá en el círculo (también si es animada).</p>
+    <div class="row crop-row"><span id="crop-preview" class="avatar crop clickable"></span></div>
+    <label>Acercar <input id="crop-zoom" type="range" min="1" max="4" step="0.05" value="1"></label>
+    <div class="row"><button id="crop-cancel" type="button">Cancelar</button><span class="spacer"></span><button id="crop-ok" class="primary" type="button">Usar esta foto</button></div>
+  </dialog>
+
+  <!-- FUENTES PROPIAS -->
+  <dialog id="fonts-dialog">
+    <h2>Mis fuentes</h2>
+    <p class="small muted">Sube hasta 4 fuentes (.woff2, .woff, .ttf, .otf; máximo 300 KB cada una). Se guardan en tu perfil y se usan en tu nombre y en tus cuadros de texto. Tus contactos podrán descargarlas para ver tu perfil como lo diseñaste (se les pregunta antes). Usa solo fuentes que tengas derecho a compartir.</p>
+    <ul id="fonts-list" class="plain"></ul>
+    <button id="fonts-add" type="button">Subir fuente</button>
+    <label>Fuente de mi nombre <select id="fonts-name"></select></label>
+    <div id="fonts-sample" class="fonts-sample"></div>
+    <p id="fonts-msg" class="error small" role="alert"></p>
+    <div class="row"><span class="spacer"></span><button id="fonts-close" class="primary" type="button">Listo</button></div>
+  </dialog>
+
+  <!-- AJUSTES -->
+  <dialog id="settings">
+    <h2>Ajustes</h2>
+    <label class="check"><input id="set-node" type="checkbox"> Ayudar a la red (modo nodo)</label>
+    <p class="small muted">Tu PC ayuda a otros a encontrarse, con muy poco consumo. No guarda ni lee chats ajenos.</p>
+    <label class="check"><input id="set-accept" type="checkbox"> Aceptar solicitudes de desconocidos</label>
+    <p class="small muted">Si la desactivas, solo se pueden conectar contigo quienes ya están en tus contactos (ambos deben añadirse con el código del otro). Es la opción más segura contra el spam.</p>
+    <label class="check"><input id="set-bg" type="checkbox"> Mantener PrivChat en segundo plano al cerrar la ventana</label>
+    <p class="small muted">Imprescindible si alojas un servidor: si cierras la app del todo, tu servidor se desconecta. Se ve un icono junto al reloj para abrirla o salir.</p>
+    <label class="check"><input id="set-auto" type="checkbox"> Iniciar con el sistema (en segundo plano)</label>
+    <p id="set-auto-note" class="small muted">Para que entre sola al encender el equipo, activa también «Recordar en este dispositivo». Solo disponible en la versión instalada.</p>
+    <label class="check"><input id="set-remember" type="checkbox"> Recordar en este dispositivo</label>
+    <p class="small muted">Quien use tu usuario de Windows podría abrir la app sin contraseña. No lo actives en equipos compartidos.</p>
+    <p>Clave de acceso en pendrive: <strong id="set-key-status"></strong></p>
+    <div class="row">
+      <button id="btn-key-new" type="button">Crear clave de acceso</button>
+      <button id="btn-key-del" type="button">Quitar clave de acceso</button>
+    </div>
+    <p id="set-msg" class="ok" role="status"></p>
+    <div class="row">
+      <button id="btn-logout" type="button">Cerrar sesión</button>
+      <span class="spacer"></span>
+      <button id="btn-settings-close" class="primary" type="button">Cerrar</button>
+    </div>
+  </dialog>
+
+  <!-- LLAMADA -->
+  <div id="call" hidden>
+    <div class="call-box">
+      <div id="call-title"></div>
+      <div id="call-sub" class="muted"></div>
+      <div class="row">
+        <button id="call-accept" class="primary" type="button" hidden>Contestar</button>
+        <button id="call-mute" type="button" hidden>Silenciar</button>
+        <button id="call-end" class="danger" type="button">Colgar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" role="status" hidden></div>
+
+  <script src="profile.js"></script>
+  <script src="servers.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

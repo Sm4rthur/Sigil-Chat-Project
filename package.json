@@ -1,0 +1,66 @@
+{
+  "name": "privchat",
+  "version": "0.3.0",
+  "description": "Chat y llamadas entre computadores, sin servidor central",
+  "main": "src/main.js",
+  "license": "AGPL-3.0-or-later",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/smoke.js && node test/protocol.js && node test/profile.js && node test/servers.js && node test/server.js && node test/ui-smoke.js && node test/consistency.js",
+    "dist:win": "electron-builder --win --x64 --publish never"
+  },
+  "dependencies": {
+    "hyperdht": "^6.0.0",
+    "hyperswarm": "^4.0.0"
+  },
+  "devDependencies": {
+    "@electron/fuses": "^2.1.0",
+    "electron": "^44.0.0",
+    "electron-builder": "^26.4.0"
+  },
+  "author": "Colaboradores de PrivChat",
+  "build": {
+    "appId": "org.privchat.app",
+    "productName": "PrivChat",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "ui/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "PrivChat-Instalador-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "PrivChat-Portable-${version}.${ext}"
+    },
+    "afterPack": "build/fuses.js"
+  }
+}
