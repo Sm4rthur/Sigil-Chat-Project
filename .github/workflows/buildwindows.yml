@@ -22,7 +22,7 @@ jobs:
         run: npm install
 
       - name: Compilar paquete Windows
-        run: npm run make # o npm run build / electron-builder según tus scripts
+        run: npm run dist # o npm run build / electron-builder según tus scripts
 
       - name: Guardar instalador/ejecutable
         uses: actions/upload-artifact@v4
