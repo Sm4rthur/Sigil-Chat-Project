@@ -22,10 +22,10 @@ jobs:
         run: npm install
 
       - name: Compilar paquete Windows
-        run: npm run dist # o npm run build / electron-builder según tus scripts
+        run: npm run dist
 
       - name: Guardar instalador/ejecutable
         uses: actions/upload-artifact@v4
         with:
           name: MiApp-Windows-Electron
-          path: out/make/ # O la carpeta dist/ donde deje el build
+          path: out/make/
