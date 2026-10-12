@@ -22,10 +22,10 @@ jobs:
         run: npm install
 
       - name: Compilar paquete Windows
-        run: npm run dist
+        run: npm run dist:win
 
       - name: Guardar instalador/ejecutable
         uses: actions/upload-artifact@v4
         with:
-          name: MiApp-Windows-Electron
-          path: out/make/
+          name: SigilChat-Windows-x64
+          path: dist/*.exe
