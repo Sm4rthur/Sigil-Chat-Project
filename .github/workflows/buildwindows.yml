@@ -19,7 +19,7 @@ jobs:
           node-version: 20
 
       - name: Instalar dependencias
-        run: npm ci
+        run: npm install
 
       - name: Compilar paquete Windows
         run: npm run make # o npm run build / electron-builder según tus scripts
