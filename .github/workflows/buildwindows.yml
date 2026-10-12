@@ -1,0 +1,31 @@
+name: Build Electron Windows
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Compilar paquete Windows
+        run: npm run make # o npm run build / electron-builder según tus scripts
+
+      - name: Guardar instalador/ejecutable
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiApp-Windows-Electron
+          path: out/make/ # O la carpeta dist/ donde deje el build
