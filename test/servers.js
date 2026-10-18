@@ -22,7 +22,7 @@ const lastErr = (w) => w.errors[w.errors.length - 1] || ''
   const [wa, wb, wc, wd] = [ana, beto, carlos, dana].map(watch)
 
   // ---------- Crear servidor e invitar ----------
-  const sv = ana.servers.create('Mi servidor')
+  const sv = ana.servers.create('Mi servidor', null, { e2ee: false })
   const sid = sv.id
   const gen = sv.channels[0].id
   assert.strictEqual(sv.mine, true)

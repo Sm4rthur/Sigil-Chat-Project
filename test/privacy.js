@@ -1,0 +1,25 @@
+'use strict'
+const assert = require('assert')
+const { exposure, PRESETS, modeOf } = require('../src/privacy')
+
+const normal = exposure({ contacts: 3, joined: 2, nodeMode: true, acceptRequests: true, registry: true })
+const priv = exposure({ contacts: 3, joined: 2, hosted: 1, members: 4, nodeMode: false, acceptRequests: false })
+const find = (rows, text) => rows.find((r) => r.who.includes(text))
+
+assert.strictEqual(find(normal, 'DHT').level, 'alto')
+assert.strictEqual(find(priv, 'DHT').level, 'medio', 'sin modo nodo ya no apareces en las tablas')
+assert.strictEqual(find(normal, 'Desconocidos').level, 'alto')
+assert.strictEqual(find(priv, 'Desconocidos').level, 'bajo')
+assert.ok(find(normal, 'Registro') && !find(priv, 'Registro'))
+assert.ok(find(priv, 'Miembros de tus servidores') && !find(normal, 'Miembros de tus servidores'))
+assert.match(find(normal, 'contactos').who, /\(3\)/)
+// Honestidad: el modo privado nunca marca como protegidos a los contactos ni a los anfitriones
+assert.strictEqual(find(priv, 'contactos').level, 'alto')
+assert.strictEqual(find(priv, 'Anfitriones').level, 'medio')
+assert.ok(find(priv, 'Anfitriones').sees.includes('Tu IP'))
+assert.deepStrictEqual(PRESETS.private, { nodeMode: false, acceptRequests: false })
+assert.strictEqual(modeOf(PRESETS.private), 'private')
+assert.strictEqual(modeOf(PRESETS.normal), 'normal')
+assert.strictEqual(modeOf({ nodeMode: true, acceptRequests: false }), 'custom')
+assert.ok(exposure().length >= 5, 'funciona sin datos')
+console.log('privacy.js: todo bien')

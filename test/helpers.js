@@ -10,7 +10,10 @@ const path = require('path')
 
 class FakeDHT {
   constructor(opts) { this.ephemeral = !!opts.ephemeral }
-  static keyPair(seed) { return { publicKey: crypto.createHash('sha256').update(seed).digest(), secretKey: seed } }
+  static keyPair(seed) { // clave pública Ed25519 real derivada de la semilla (igual que Hyperswarm)
+    const priv = crypto.createPrivateKey({ key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), seed]), format: 'der', type: 'pkcs8' })
+    return { publicKey: Buffer.from(crypto.createPublicKey(priv).export({ type: 'spki', format: 'der' }).subarray(-32)), secretKey: seed }
+  }
   async destroy() {}
 }
 class FakeSwarm extends EventEmitter {
@@ -28,7 +31,7 @@ Module._load = function (request, ...rest) {
 }
 
 const { P2PNode } = require('../src/network')
-const { Vault, ProfileStore } = require('../src/storage')
+const { Vault, ProfileStore, FileStore } = require('../src/storage')
 const { randomKey } = require('../src/crypto')
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'privchat-net-'))
@@ -41,7 +44,8 @@ async function makeNode(name, { cert } = {}) {
   const vault = new Vault(dir, key)
   vault.load()
   const profiles = new ProfileStore(dir, key)
-  const node = new P2PNode({ seed: Buffer.from(vault.data.identitySeed, 'base64'), name, vault, nodeMode: true, cert, profiles })
+  const fileStore = new FileStore(dir, key)
+  const node = new P2PNode({ seed: Buffer.from(vault.data.identitySeed, 'base64'), name, vault, nodeMode: true, cert, profiles, fileStore })
   await node.start()
   allNodes.push(node)
   return node

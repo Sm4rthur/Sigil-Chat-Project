@@ -13,7 +13,7 @@ process.on('uncaughtException', (e) => { console.error('Error:', e); process.exi
 const els = new Map()
 function mk(id) {
   const store = {
-    id, children: [], style: {}, dataset: {}, value: '', checked: false, hidden: false, options: [], files: [], clientWidth: 800, textContent: '',
+    id, children: [], style: { removeProperty(k) { delete this[k] }, setProperty(k, v) { this[k] = v } }, dataset: {}, value: '', checked: false, hidden: false, options: [], files: [], clientWidth: 800, textContent: '',
     classList: { add() {}, remove() {}, toggle() {}, contains: () => false }
   }
   const proxy = new Proxy(store, {
@@ -47,17 +47,22 @@ const profile = {
 const res = {
   boot: () => ({ ok: true, loggedIn: true }),
   me: () => ({ ok: true, me: { username: 'ana', email: 'a@gmail.com', code: me, hasKeyfile: false, remembered: false, nodeMode: true, acceptRequests: true, runInBackground: false, autoStart: false, packaged: false, verified: true } }),
-  contacts: () => ({ ok: true, contacts: [{ key: peer, name: 'Beto', remoteName: 'beto', verified: true, online: true, profRev: 'f'.repeat(16) }], requests: [{ key: 'e'.repeat(64), name: 'Extraño', verified: false, ts: 1 }], node: { nodeMode: true, acting: false, connected: 1 }, verification: true }),
+  contacts: () => ({ ok: true, contacts: [{ key: peer, name: 'Beto', remoteName: 'beto', verified: true, online: true, profRev: 'f'.repeat(16) }], requests: [{ key: 'e'.repeat(64), name: 'Extraño', verified: false, ts: 1 }], node: { ready: true, nodeMode: true, acting: false, connected: 1 }, verification: true }),
   chat: () => ({ ok: true, messages: [
     { id: '1', from: 'me', text: 'hola', ts: Date.now(), status: 'delivered' },
     { id: '2', from: 'them', kind: 'call', ts: Date.now(), call: { dir: 'in', result: 'missed', duration: 0 } },
-    { id: '3', from: 'me', kind: 'call', ts: Date.now(), call: { dir: 'out', result: 'ended', duration: 75 } }
+    { id: '3', from: 'me', kind: 'call', ts: Date.now(), call: { dir: 'out', result: 'ended', duration: 75 } },
+    { id: '4'.repeat(16), from: 'them', kind: 'file', ts: Date.now(), file: { name: 'foto.png', size: 200000, mime: 'image/png', sha: 'a'.repeat(64), state: 'offered', dangerous: false } },
+    { id: '5'.repeat(16), from: 'them', kind: 'file', ts: Date.now(), file: { name: 'virus.exe', size: 5000, mime: 'application/octet-stream', sha: 'b'.repeat(64), state: 'ready', dangerous: true } },
+    { id: '6'.repeat(16), from: 'me', kind: 'file', ts: Date.now(), status: 'delivered', file: { name: 'a.txt', size: 10, mime: 'text/plain', sha: 'c'.repeat(64), state: 'sent', dangerous: false } },
+    { id: '7', from: 'them', text: 'mira https://ejemplo.com/x. gracias', ts: Date.now() }
   ] }),
   'profile-avatar': () => ({ ok: true, avatar: '', crop: { zoom: 1, x: 0, y: 0 } }),
   'profile-get': () => ({ ok: true, consent: null, profile }),
-  'srv-list': () => ({ ok: true, servers: [{ id: sid, name: 'Srv', mine: false, myRole: 'admin', hostOnline: true }] }),
-  'srv-get': () => ({ ok: true, server: { id: sid, name: 'Srv', mine: false, hostKey: peer, myRole: 'admin', hostOnline: true, channels: [{ id: cid, name: 'general' }],
-    members: [{ key: me, name: 'ana', role: 'admin', verified: true, online: true, muted: false }, { key: peer, name: 'beto', role: 'member', verified: false, online: true, muted: false }],
+  'srv-list': () => ({ ok: true, servers: [{ id: sid, name: 'Srv', mine: false, myRole: 'admin', hostOnline: true, e2ee: true }] }),
+  'privacy-get': () => ({ ok: true, mode: 'normal', settings: { nodeMode: true, acceptRequests: true }, rows: [{ who: 'Tus contactos (1)', sees: 'Tu IP', level: 'alto' }] }),
+  'srv-get': () => ({ ok: true, server: { id: sid, name: 'Srv', mine: false, hostKey: peer, myRole: 'admin', hostOnline: true, e2ee: true, hasKey: false, needsRotation: true, ownerKey: peer, channels: [{ id: cid, name: 'general' }],
+    members: [{ key: me, name: 'ana', role: 'admin', verified: true, online: true, muted: false }, { key: peer, name: 'beto', role: 'member', verified: false, online: true, muted: false, hasKey: false }],
     bans: ['9'.repeat(64)], audit: [{ ts: 1, by: 'x', action: 'y', target: 'z' }] } }),
   'srv-messages': () => ({ ok: true, messages: [{ id: '1'.repeat(12), from: peer, name: 'beto', v: false, ts: Date.now(), text: 'hola @ana' }, { id: '2'.repeat(12), from: me, name: 'ana', v: true, ts: Date.now(), text: 'ok', edited: 5 }] })
 }
@@ -65,11 +70,12 @@ const res = {
 const sandbox = {
   console, setTimeout, setInterval, clearInterval, clearTimeout, Date, Math, JSON, Promise, Array, Object, Number, String, RegExp, Set, Map,
   Uint8Array, Int16Array, ArrayBuffer, Error, Symbol, parseInt, parseFloat, isNaN, atob, btoa, URL,
+  localStorage: { _d: {}, getItem(k) { return this._d[k] ?? null }, setItem(k, v) { this._d[k] = v } },
   confirm: () => true, alert() {}, location: { reload() {} },
   navigator: { mediaDevices: {}, clipboard: { writeText: async () => {} } },
   AudioContext: class {}, Image: class {}, FileReader: class {},
   FontFace: class { async load() { return this } },
-  document: { getElementById: getEl, createElement: () => mk('new'), createTextNode: (t) => ({ nodeValue: t }), querySelectorAll: () => [], fonts: { add() {} } }
+  document: { documentElement: mk('html'), getElementById: getEl, createElement: () => mk('new'), createTextNode: (t) => ({ nodeValue: t }), querySelectorAll: () => [], fonts: { add() {} } }
 }
 sandbox.window = sandbox
 sandbox.api = undefined
@@ -83,17 +89,37 @@ const run = (code) => vm.runInContext(code, sandbox)
 const tick = (ms = 30) => new Promise((r) => setTimeout(r, ms))
 
 ;(async () => {
-  for (const f of ['profile.js', 'servers.js', 'app.js']) {
+  for (const f of ['theme.js', 'links.js', 'profile.js', 'servers.js', 'app.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'ui', f), 'utf8'), sandbox, { filename: f })
   }
   await tick(100)
   const called = (name) => calls.some((c) => c[0] === name)
   for (const ch of ['boot', 'me', 'contacts', 'srv-list']) assert.ok(called(ch), 'el arranque debe llamar a ' + ch)
 
+  // Temas: el personalizado valida los colores y aplica solo propiedades CSS
+  const html = sandbox.document.documentElement
+  assert.strictEqual(html.dataset.theme, 'auto')
+  getEl('th-mode').value = 'custom'; await getEl('th-mode').onchange({ target: getEl('th-mode') })
+  assert.strictEqual(html.dataset.theme, 'custom')
+  getEl('th-bg').value = 'javascript:alert(1)'; await getEl('th-bg').oninput({ target: getEl('th-bg') })
+  assert.ok(JSON.parse(sandbox.localStorage._d['privchat-theme']).custom.bg.startsWith('#'), 'un color inválido se descarta')
+  assert.strictEqual(run('ThemeUI.normalize({mode:"x"}).mode'), 'auto')
+  assert.ok(run('ThemeUI.contrast("#000000","#ffffff")') > 20)
+
+  // Panel de privacidad
+  getEl('btn-privacy').onclick()
+  await tick(40)
+  assert.ok(called('privacy-get'))
+  assert.strictEqual(getEl('privacy-off').disabled, true, 'en modo normal no se ofrece volver a normal')
+
   // Chat con registros de llamada
   await run(`openChat("${peer}")`)
   await tick()
-  assert.ok(getEl('messages').children.length >= 3)
+  assert.ok(getEl('messages').children.length >= 7, 'dibuja mensajes, llamadas y archivos')
+  const linkBox = run("(() => { const c = document.createElement('div'); LinkUI.render('mira https://ejemplo.com/x. ok', c); return c.children })()")
+  assert.strictEqual(linkBox.length, 3, 'texto, enlace y texto')
+  assert.strictEqual(linkBox[1].textContent, 'https://ejemplo.com/x', 'la puntuación final no es parte del enlace')
+  assert.strictEqual(linkBox[1].className, 'link')
 
   // Servidor
   await run(`ServersUI.open("${sid}")`)

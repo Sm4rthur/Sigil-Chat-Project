@@ -9,6 +9,8 @@ const html = read('ui/index.html')
 const app = read('ui/app.js')
 const profileUi = read('ui/profile.js')
 const serversUi = read('ui/servers.js')
+const linksUi = read('ui/links.js')
+const themeUi = read('ui/theme.js')
 const main = read('src/main.js')
 const preload = read('src/preload.js')
 
@@ -38,7 +40,10 @@ assert.ok(/default-src 'none'/.test(html), 'Falta la política CSP restrictiva')
 assert.ok(!/\sstyle\s*=/i.test(html), 'No usar estilos en línea')
 assert.ok(!/\son[a-z]+\s*=/i.test(html), 'No usar manejadores en línea (onclick=...)')
 assert.ok(![...html.matchAll(/<script\b([^>]*)>/g)].some((m) => !/\bsrc=/.test(m[1])), 'No usar scripts en línea')
-for (const [name, code] of [['app.js', app], ['profile.js', profileUi], ['servers.js', serversUi]]) {
+for (const m of linksUi.matchAll(/byId\('([^']+)'\)/g)) assert.ok(ids.has(m[1]), 'Falta en index.html el elemento: ' + m[1])
+for (const m of linksUi.matchAll(/rpc\('([^']+)'/g)) assert.ok(channels.has(m[1]), 'links.js usa un canal inexistente: ' + m[1])
+for (const m of themeUi.matchAll(/byId\('([^']+)'\)/g)) assert.ok(ids.has(m[1]), 'Falta en index.html el elemento (tema): ' + m[1])
+for (const [name, code] of [['app.js', app], ['profile.js', profileUi], ['servers.js', serversUi], ['links.js', linksUi], ['theme.js', themeUi]]) {
   assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\(|new Function|setAttribute\(\s*['"]style/.test(code), 'API peligrosa en ' + name + ' (riesgo de inyección)')
   assert.ok(!/\bfetch\(|XMLHttpRequest|WebSocket|sendBeacon/.test(code), name + ' no debe hacer conexiones')
 }
@@ -52,6 +57,12 @@ for (const rule of [
   /onBeforeRequest/, /setPermissionRequestHandler/, /fromOurWindow/
 ]) assert.ok(rule.test(main), 'Falta en main.js: ' + rule)
 assert.ok(!/nodeIntegration:\s*true|contextIsolation:\s*false|sandbox:\s*false|webSecurity:\s*false/.test(main))
+
+// 5b) El programa principal, la red y la lógica no usan APIs que ejecutan código ni lanzan procesos
+for (const f of fs.readdirSync(path.join(__dirname, '..', 'src')).filter((n) => n.endsWith('.js'))) {
+  const code = read('src/' + f).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  assert.ok(!/child_process|\beval\(|new Function\(|require\(['"]vm['"]\)|execSync|execFile|spawn\(/.test(code), 'API peligrosa en src/' + f)
+}
 
 // 6) El puente solo expone "api"
 assert.strictEqual([...preload.matchAll(/exposeInMainWorld\(/g)].length, 1)
