@@ -1,0 +1,29 @@
+# Servicio de systemd para un anfitrión 24/7 (Raspberry Pi OS, Debian, Ubuntu...).
+# Instalación: ver headless/README.md
+[Unit]
+Description=PrivChat - anfitrion de servidores
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=privchat
+WorkingDirectory=/opt/privchat
+ExecStart=/usr/bin/node headless/index.js run --data /var/lib/privchat-host
+Restart=always
+RestartSec=5
+StateDirectory=privchat-host
+StateDirectoryMode=0700
+
+# Endurecimiento: el servicio solo puede escribir en su carpeta de datos
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/lib/privchat-host
+
+[Install]
+WantedBy=multi-user.target
