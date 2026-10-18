@@ -20,7 +20,9 @@ const config = require('./config')
 const { verifyCert } = require('./shared')
 const { validateProfile, LIMITS: PROFILE_LIMITS } = require('./profile')
 const { Servers } = require('./servers')
-const { T_JSON, T_AUDIO, MAX_JSON_FRAME, MAX_AUDIO_FRAME, encodeFrame, FrameParser } = require('./frames')
+const { FILES, sanitizeName, mimeFor } = require('./files')
+const e2 = require('./e2ee')
+const { T_JSON, T_AUDIO, T_FILE, MAX_JSON_FRAME, MAX_AUDIO_FRAME, encodeFrame, FrameParser } = require('./frames')
 
 // Límites de seguridad (ajustables)
 const LIMITS = {
@@ -66,12 +68,20 @@ const randomId = () => crypto.randomBytes(8).toString('hex')
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 
 class P2PNode extends EventEmitter {
-  constructor({ seed, name, vault, nodeMode, cert, profiles }) {
+  constructor({ seed, name, vault, nodeMode, cert, profiles, fileStore }) {
     super()
+    this.fileStore = fileStore || null // archivos compartidos (ver storage.js)
     this.profiles = profiles || null // almacén de perfiles (ver storage.js)
     this.cert = cert || null // certificado firmado por el servicio de verificación (si la cuenta lo tiene)
     this.keyPair = DHT.keyPair(seed)
     this.code = this.keyPair.publicKey.toString('hex') // tu código único (64 caracteres)
+    // Firma de mensajes: se deriva de la MISMA semilla. Si no coincide con tu código, el cifrado se desactiva (nunca falla en silencio).
+    this.signer = null
+    this.e2eeReady = false
+    try {
+      this.signer = e2.signerFromSeed(seed)
+      this.e2eeReady = this.signer.publicKey.equals(this.keyPair.publicKey)
+    } catch { this.e2eeReady = false }
     this.name = name
     this.vault = vault
     this.nodeMode = nodeMode
@@ -79,6 +89,7 @@ class P2PNode extends EventEmitter {
     this.call = null       // { id, peer, state: 'calling'|'ringing'|'active', startedAt }
     this._callTimer = null
     this._tick = null
+    this.started = false // true cuando ya está escuchando en la red
     this.servers = new Servers(this) // servidores (grupos) alojados por el creador
   }
 
@@ -107,6 +118,7 @@ class P2PNode extends EventEmitter {
     }, 30000)
 
     await this.swarm.listen() // quedar disponible para que tus contactos te encuentren
+    this.started = true
     for (const c of this.data.contacts) this.swarm.joinPeer(Buffer.from(c.key, 'hex'))
     for (const hostKey of this.servers.hostKeys()) this.swarm.joinPeer(Buffer.from(hostKey, 'hex')) // anfitriones de mis servidores
     this.emit('node', this.nodeInfo())
@@ -126,7 +138,7 @@ class P2PNode extends EventEmitter {
   nodeInfo() {
     const connected = [...this.peers.values()].filter((p) => p.ready).length
     const acting = this.dht && typeof this.dht.ephemeral === 'boolean' ? !this.dht.ephemeral : null
-    return { nodeMode: this.nodeMode, acting, connected, acceptRequests: this.data.settings.acceptRequests !== false }
+    return { ready: this.started, nodeMode: this.nodeMode, acting, connected, acceptRequests: this.data.settings.acceptRequests !== false }
   }
 
   // ¿Se debe rechazar a esta clave? Bloqueados, y desconocidos si no se aceptan solicitudes.
@@ -185,6 +197,7 @@ class P2PNode extends EventEmitter {
       clearTimeout(peer.helloTimer)
       clearTimeout(peer.srvTimer)
       if (peer.inProfile) clearTimeout(peer.inProfile.timer)
+      if (peer.inFile) this._failFile(peer)
       if (this.peers.get(key) !== peer) return
       this.peers.delete(key)
       this.servers.onPeerClosed(peer)
@@ -207,6 +220,7 @@ class P2PNode extends EventEmitter {
   }
 
   _onFrame(peer, type, payload) {
+    if (type === T_FILE) return this._onFileChunk(peer, payload)
     if (type === T_AUDIO) {
       if (payload.length > MAX_AUDIO_FRAME || !peer.audio.take(payload.length)) return // se descarta
       return this._onAudio(peer, payload)
@@ -229,6 +243,10 @@ class P2PNode extends EventEmitter {
       case 'call-invite': return this._onCallInvite(peer, m)
       case 'call-accept': return this._onCallAccept(peer, m)
       case 'call-end': return this._onCallEnd(peer, m)
+      case 'file-offer': return this._onFileOffer(peer, m)
+      case 'file-req': return this._onFileReq(peer, m)
+      case 'file-end': return this._onFileEnd(peer, m)
+      case 'file-gone': return this._onFileGone(peer)
       case 'profile-new': return this._maybeRequestProfile(peer, m.rev)
       case 'profile-req': return this._onProfileReq(peer)
       case 'profile-start': return this._onProfileStart(peer, m)
@@ -259,6 +277,7 @@ class P2PNode extends EventEmitter {
       }
     } else {
       // Un desconocido con tu código quiere conectarse: queda como solicitud (con tope).
+      if (this.data.settings.acceptRequests === false) return peer.conn.destroy()
       const req = this.data.requests.find((r) => r.key === peer.key)
       if (req) {
         req.name = peer.remoteName
@@ -273,6 +292,157 @@ class P2PNode extends EventEmitter {
     }
     this.servers.onPeerReady(peer)
     this._presence()
+  }
+
+  // ---------- Archivos ----------
+  // Primero llega una OFERTA; el receptor decide si descargarla. El contenido va en paquetes binarios,
+  // se verifica su tamaño y su SHA-256 y se guarda cifrado. Nada se abre ni se ejecuta jamás.
+
+  _fileMsg(key, id, from) {
+    return (this.data.chats[key] || []).find((x) => x.id === id && x.kind === 'file' && x.from === from)
+  }
+
+  // Borra del disco los archivos que ya no usa ningún mensaje
+  _cleanFiles(shas) {
+    if (!this.fileStore) return
+    const used = new Set()
+    for (const list of Object.values(this.data.chats)) for (const m of list) if (m.kind === 'file') used.add(m.file.sha)
+    for (const sha of new Set(shas)) if (!used.has(sha)) this.fileStore.delete(sha)
+  }
+
+  offerFile(key, rawName, bytes) {
+    if (!this._contact(key)) throw new Error('Contacto desconocido')
+    if (!this.fileStore) throw new Error('Los archivos no están disponibles')
+    if (!Buffer.isBuffer(bytes) || bytes.length < 1) throw new Error('El archivo está vacío')
+    if (bytes.length > FILES.maxBytes) throw new Error('El archivo supera el máximo de ' + Math.round(FILES.maxBytes / 1048576) + ' MB')
+    if (this.fileStore.total() + bytes.length > FILES.maxStorage) throw new Error('Se alcanzó el espacio máximo para archivos')
+    const name = sanitizeName(rawName)
+    const sha = crypto.createHash('sha256').update(bytes).digest('hex')
+    this.fileStore.put(sha, bytes)
+    const msg = { id: randomId(), from: 'me', kind: 'file', ts: Date.now(), status: 'pending', file: { name, size: bytes.length, mime: mimeFor(name), sha, state: 'sent' } }
+    this._pushMessage(key, msg)
+    const peer = this.peers.get(key)
+    if (peer && peer.ready) this._sendOffer(peer, msg)
+    return msg
+  }
+
+  _sendOffer(peer, msg) {
+    this._send(peer, { t: 'file-offer', id: msg.id, name: msg.file.name, size: msg.file.size, mime: msg.file.mime, sha: msg.file.sha })
+  }
+
+  _onFileOffer(peer, m) {
+    if (!this.fileStore || typeof m.id !== 'string' || !/^[0-9a-f]{16}$/.test(m.id)) return
+    if (!Number.isInteger(m.size) || m.size < 1 || m.size > FILES.maxBytes) return
+    if (typeof m.sha !== 'string' || !/^[0-9a-f]{64}$/.test(m.sha) || typeof m.name !== 'string') return
+    const chat = this.data.chats[peer.key] || []
+    if (chat.some((x) => x.id === m.id)) return this._send(peer, { t: 'ack', id: m.id })
+    if (chat.filter((x) => x.kind === 'file' && x.from === 'them' && x.file.state === 'offered').length >= FILES.maxOffered) return
+    const mime = typeof m.mime === 'string' && /^[a-z0-9.+-]{1,40}\/[a-z0-9.+-]{1,40}$/.test(m.mime) ? m.mime : 'application/octet-stream'
+    this._send(peer, { t: 'ack', id: m.id })
+    this._pushMessage(peer.key, { id: m.id, from: 'them', kind: 'file', ts: Date.now(), file: { name: sanitizeName(m.name), size: m.size, mime, sha: m.sha, state: 'offered' } })
+  }
+
+  // El usuario acepta una oferta: se pide el archivo al contacto.
+  downloadFile(key, id) {
+    const msg = this._fileMsg(key, id, 'them')
+    if (!msg || !['offered', 'failed'].includes(msg.file.state)) throw new Error('Ese archivo no se puede descargar')
+    const peer = this.peers.get(key)
+    if (!peer || !peer.ready) throw new Error('El contacto no está conectado')
+    if (peer.inFile) throw new Error('Ya hay una descarga en curso con este contacto')
+    if (this.fileStore.has(msg.file.sha)) { // mismo contenido ya guardado
+      msg.file.state = 'ready'
+      this.vault.save()
+      return this.emit('chat', { key, incoming: false })
+    }
+    if (this.fileStore.total() + msg.file.size > FILES.maxStorage) throw new Error('Se alcanzó el espacio máximo para archivos')
+    msg.file.state = 'downloading'
+    peer.inFile = {
+      id, size: msg.file.size, sha: msg.file.sha, hash: crypto.createHash('sha256'), parts: [], got: 0, bytes: 0,
+      bucket: new Bucket(FILES.recvBurst, FILES.recvPerSec), timer: setTimeout(() => this._failFile(peer), FILES.timeoutMs)
+    }
+    peer.inFile.timer.unref?.()
+    this.vault.save()
+    this.emit('chat', { key, incoming: false })
+    this._send(peer, { t: 'file-req', id })
+  }
+
+  _failFile(peer) {
+    const f = peer.inFile
+    if (!f) return
+    clearTimeout(f.timer)
+    peer.inFile = null
+    const msg = this._fileMsg(peer.key, f.id, 'them')
+    if (msg && msg.file.state === 'downloading') {
+      msg.file.state = 'failed'
+      this.vault.save()
+      this.emit('chat', { key: peer.key, incoming: false })
+    }
+  }
+
+  // Un contacto pide un archivo que le ofrecí: se le envía en paquetes pequeños, con pausas.
+  _onFileReq(peer, m) {
+    if (!this.fileStore || peer.sendingFile || typeof m.id !== 'string') return
+    const msg = this._fileMsg(peer.key, m.id, 'me')
+    const bytes = msg ? this.fileStore.get(msg.file.sha) : null
+    if (!bytes) return this._send(peer, { t: 'file-gone', id: m.id.slice(0, 16) })
+    peer.sendingFile = true
+    const idBuf = Buffer.from(msg.id, 'hex')
+    let i = 0
+    let off = 0
+    const step = () => {
+      if (peer.conn.destroyed || this.peers.get(peer.key) !== peer) { peer.sendingFile = false; return }
+      if (off >= bytes.length) { this._send(peer, { t: 'file-end', id: msg.id }); peer.sendingFile = false; return }
+      if (peer.conn.writableLength < 512 * 1024) { // si la red va lenta, se espera
+        const head = Buffer.alloc(12)
+        idBuf.copy(head, 0)
+        head.writeUInt32BE(i++, 8)
+        const part = bytes.subarray(off, off + FILES.chunk)
+        peer.conn.write(encodeFrame(T_FILE, Buffer.concat([head, part])))
+        off += part.length
+      }
+      setTimeout(step, FILES.paceMs).unref?.()
+    }
+    step()
+  }
+
+  _onFileChunk(peer, payload) {
+    const f = peer.inFile
+    if (!f || !peer.ready || !this._contact(peer.key) || payload.length < 13 || payload.length > FILES.chunk + 12) return
+    if (payload.subarray(0, 8).toString('hex') !== f.id || payload.readUInt32BE(8) !== f.got) return this._failFile(peer)
+    const data = payload.subarray(12)
+    f.bytes += data.length
+    if (f.bytes > f.size || !f.bucket.take(data.length)) return this._failFile(peer) // más de lo ofrecido, o demasiado rápido
+    f.hash.update(data)
+    f.parts.push(Buffer.from(data))
+    f.got++
+  }
+
+  _onFileEnd(peer, m) {
+    const f = peer.inFile
+    if (!f || m.id !== f.id) return
+    clearTimeout(f.timer)
+    peer.inFile = null
+    const msg = this._fileMsg(peer.key, f.id, 'them')
+    if (!msg) return
+    if (f.bytes === f.size && f.hash.digest('hex') === f.sha) { // coincide con lo ofrecido: se guarda cifrado
+      this.fileStore.put(f.sha, Buffer.concat(f.parts))
+      msg.file.state = 'ready'
+    } else {
+      msg.file.state = 'failed'
+    }
+    this.vault.save()
+    this.emit('chat', { key: peer.key, incoming: false })
+  }
+
+  _onFileGone(peer) { this._failFile(peer) }
+
+  // Datos de un archivo disponible (recibido o enviado por mí), para vista previa o para guardarlo
+  getFile(key, id) {
+    const msg = (this.data.chats[key] || []).find((x) => x.id === id && x.kind === 'file')
+    if (!msg || !['ready', 'sent'].includes(msg.file.state)) throw new Error('El archivo no está disponible')
+    const bytes = this.fileStore ? this.fileStore.get(msg.file.sha) : null
+    if (!bytes) throw new Error('El archivo ya no está guardado')
+    return { file: msg.file, bytes }
   }
 
   // ---------- Perfiles ----------
@@ -411,7 +581,9 @@ class P2PNode extends EventEmitter {
 
   removeContact(key) {
     this.data.contacts = this.data.contacts.filter((c) => c.key !== key)
+    const shas = (this.data.chats[key] || []).filter((m) => m.kind === 'file').map((m) => m.file.sha)
     delete this.data.chats[key]
+    this._cleanFiles(shas)
     this.profiles?.delete(key)
     this.vault.save()
     this.swarm?.leavePeer(Buffer.from(key, 'hex'))
@@ -463,7 +635,8 @@ class P2PNode extends EventEmitter {
     for (const m of this.getChat(peer.key)) {
       if (m.from !== 'me' || m.status !== 'pending') continue
       if (sent++ >= LIMITS.flushBatch) break // el resto se envía en el próximo reintento
-      this._send(peer, { t: 'msg', id: m.id, text: m.text })
+      if (m.kind === 'file') this._sendOffer(peer, m)
+      else if (typeof m.text === 'string') this._send(peer, { t: 'msg', id: m.id, text: m.text })
     }
   }
 

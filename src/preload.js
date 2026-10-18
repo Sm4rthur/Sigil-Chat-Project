@@ -7,7 +7,7 @@ const CHANNELS = new Set([
   'boot', 'signup', 'login', 'login-keyfile', 'logout', 'me', 'contacts', 'chat', 'send',
   'profile-get', 'profile-avatar', 'profile-save',
   'srv-list', 'srv-get', 'srv-create', 'srv-join', 'srv-leave', 'srv-messages', 'srv-send', 'srv-edit', 'srv-del', 'srv-admin',
-  'font-consent', 'set-background',
+  'font-consent', 'set-background', 'link-check', 'link-open', 'search', 'privacy-get', 'privacy-set', 'file-send', 'file-download', 'file-get', 'file-save',
   'contact-add', 'contact-remove', 'request-accept', 'request-reject',
   'call-start', 'call-accept', 'call-end', 'set-node-mode', 'set-accept-requests',
   'keyfile-create', 'keyfile-remove', 'remember-set', 'ask-mic'

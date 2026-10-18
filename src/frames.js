@@ -7,6 +7,7 @@
 
 const T_JSON = 0   // chat y control de llamadas (texto JSON)
 const T_AUDIO = 1  // audio de la llamada (PCM 16 bits, 16 kHz, mono)
+const T_FILE = 2   // parte de un archivo: [8 bytes id][4 bytes número][datos]
 
 const MAX_FRAME = 64 * 1024       // tope duro del lector
 const MAX_JSON_FRAME = 20 * 1024  // 4000 caracteres ocupan como máximo ~16 KB
@@ -84,4 +85,4 @@ class FrameParser {
   }
 }
 
-module.exports = { T_JSON, T_AUDIO, MAX_FRAME, MAX_JSON_FRAME, MAX_AUDIO_FRAME, encodeFrame, FrameParser }
+module.exports = { T_JSON, T_AUDIO, T_FILE, MAX_FRAME, MAX_JSON_FRAME, MAX_AUDIO_FRAME, encodeFrame, FrameParser }

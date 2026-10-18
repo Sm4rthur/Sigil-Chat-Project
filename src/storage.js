@@ -3,7 +3,7 @@
 const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
-const { encrypt, decrypt } = require('./crypto')
+const { encrypt, decrypt, encryptBin, decryptBin } = require('./crypto')
 const { validateProfile, emptyProfile, isEmptyProfile, profileRev } = require('./profile')
 
 function defaults() {
@@ -14,6 +14,7 @@ function defaults() {
     blocked: [],   // claves rechazadas
     chats: {},     // { [key]: [ { id, from: 'me'|'them', text, ts, status } ] }
     servers: {},       // servidores: los que alojo y a los que pertenezco (ver servers.js)
+    e2eeKeys: null,    // clave X25519 para recibir claves de grupo (la identidad firma que es tuya)
     fontConsent: {},   // contactos cuyas fuentes personalizadas acepté cargar: { [clave]: true|false }
     settings: { nodeMode: true, acceptRequests: true, runInBackground: false, autoStart: false }
   }
@@ -104,4 +105,46 @@ class ProfileStore {
   }
 }
 
-module.exports = { Vault, ProfileStore }
+// Archivos recibidos y enviados: cada uno cifrado en su propio archivo, con el SHA-256 de su contenido como nombre.
+class FileStore {
+  constructor(dir, dataKey) {
+    this.dir = path.join(dir, 'files')
+    this.key = dataKey
+    this._total = null
+  }
+
+  _file(sha) {
+    if (typeof sha !== 'string' || !/^[0-9a-f]{64}$/.test(sha)) throw new Error('Archivo no válido')
+    return path.join(this.dir, sha + '.bin')
+  }
+
+  has(sha) { return fs.existsSync(this._file(sha)) }
+
+  put(sha, buf) {
+    fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 })
+    const file = this._file(sha)
+    fs.writeFileSync(file + '.tmp', encryptBin(this.key, buf), { mode: 0o600 })
+    fs.renameSync(file + '.tmp', file)
+    this._total = null
+  }
+
+  get(sha) {
+    try { return decryptBin(this.key, fs.readFileSync(this._file(sha))) } catch { return null }
+  }
+
+  delete(sha) {
+    try { fs.unlinkSync(this._file(sha)) } catch { /* ya no estaba */ }
+    this._total = null
+  }
+
+  total() {
+    if (this._total === null) {
+      let n = 0
+      try { for (const f of fs.readdirSync(this.dir)) n += fs.statSync(path.join(this.dir, f)).size } catch { /* sin archivos */ }
+      this._total = n
+    }
+    return this._total
+  }
+}
+
+module.exports = { Vault, ProfileStore, FileStore }

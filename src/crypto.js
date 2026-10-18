@@ -29,4 +29,17 @@ function decrypt(key, box) {
   return Buffer.concat([d.update(Buffer.from(box.ct, 'base64')), d.final()])
 }
 
-module.exports = { randomKey, sha256, kdfPassword, encrypt, decrypt }
+// Versión binaria (para archivos): iv(12) + etiqueta(16) + datos cifrados
+function encryptBin(key, buf) {
+  const iv = crypto.randomBytes(12)
+  const c = crypto.createCipheriv('aes-256-gcm', key, iv)
+  const ct = Buffer.concat([c.update(buf), c.final()])
+  return Buffer.concat([iv, c.getAuthTag(), ct])
+}
+function decryptBin(key, blob) {
+  const d = crypto.createDecipheriv('aes-256-gcm', key, blob.subarray(0, 12))
+  d.setAuthTag(blob.subarray(12, 28))
+  return Buffer.concat([d.update(blob.subarray(28)), d.final()])
+}
+
+module.exports = { randomKey, sha256, kdfPassword, encrypt, decrypt, encryptBin, decryptBin }

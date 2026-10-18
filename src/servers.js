@@ -8,6 +8,7 @@
 //  - TODO lo que llega por la red se valida: el anfitrión no confía en los miembros ni los miembros
 //    en el anfitrión (tipos, largos, formato, permisos y límites de velocidad).
 const crypto = require('crypto')
+const e2 = require('./e2ee')
 
 const RANK = { member: 0, mod: 1, admin: 2, owner: 3 }
 const ROLES = Object.keys(RANK)
@@ -16,12 +17,15 @@ const CID_RE = /^[0-9a-f]{8}$/
 const KEY_RE = /^[0-9a-f]{64}$/
 const TOKEN_RE = /^[0-9a-f]{16}$/
 const MSG_ID_RE = /^[0-9a-f]{12}$/
+const INVITE2_RE = /^psrv2\.([0-9a-f]{64})\.([0-9a-f]{16})\.([0-9a-f]{16})\.([0-9a-f]{64})\.([0-9a-f]{32})$/
 const INVITE_RE = /^psrv1\.([0-9a-f]{64})\.([0-9a-f]{16})\.([0-9a-f]{16})$/
 
 const L = {
   maxMembers: 50, maxChannels: 25, maxInvites: 20, maxServersHosted: 10, maxBans: 200,
   maxText: 2000, histHost: 500, histClient: 300, syncMax: 200, firstSync: 50, auditMax: 30,
   msgBurst: 10, msgPerSec: 2,      // por miembro
+  maxSkewMs: 10 * 60 * 1000, // diferencia máxima de hora aceptada en un mensaje cifrado
+  maxInviteSecrets: 60,
   joinTimeoutMs: 20000, frameBytes: 14000, paceMs: 30
 }
 
@@ -64,13 +68,18 @@ function okState(s) {
     .filter((c) => c && typeof c.id === 'string' && CID_RE.test(c.id)).map((c) => ({ id: c.id, name: chanName(c.name) || 'canal' }))
   const members = (Array.isArray(s.members) ? s.members : []).slice(0, L.maxMembers)
     .filter((m) => m && typeof m.key === 'string' && KEY_RE.test(m.key) && ROLES.includes(m.role))
-    .map((m) => ({ key: m.key, name: clean(m.name, 40) || 'Usuario', role: m.role, verified: m.verified === true, online: m.online === true, muted: m.muted === true }))
+    .map((m) => ({ key: m.key, name: clean(m.name, 40) || 'Usuario', role: m.role, verified: m.verified === true, online: m.online === true, muted: m.muted === true, hasKey: m.hasKey !== false }))
   const you = s.you && ROLES.includes(s.you.role) ? s.you.role : null
   if (!name || !channels.length || !members.length || !you) return null
   const audit = (Array.isArray(s.audit) ? s.audit : []).slice(-L.auditMax).map((a) => ({
     ts: Number.isFinite(a && a.ts) ? Math.round(a.ts) : 0, by: clean(a && a.by, 40), action: clean(a && a.action, 60), target: clean(a && a.target, 40)
   }))
-  return { name, channels, members, you, audit }
+  const pending = (Array.isArray(s.pending) ? s.pending : []).slice(0, 12).map((p) => (
+    p && typeof p.key === 'string' && KEY_RE.test(p.key) && p.xk && typeof p.xk.xpub === 'string' && KEY_RE.test(p.xk.xpub) && e2.isB64(p.xk.sig, 80, 100) &&
+    typeof p.proof === 'string' && KEY_RE.test(p.proof) && typeof p.tok === 'string' && TOKEN_RE.test(p.tok)
+      ? { key: p.key, xk: { xpub: p.xk.xpub, sig: p.xk.sig }, proof: p.proof, tok: p.tok } : null
+  )).filter(Boolean)
+  return { name, channels, members, you, audit, pending, needsRotation: s.needsRotation === true }
 }
 
 class Servers {
@@ -100,17 +109,20 @@ class Servers {
     const members = Object.entries(S.members).map(([key, m]) => ({
       key, name: m.name, role: m.role, verified: !!m.verified,
       online: key === this.me ? true : mine ? !!this._peer(key) : !!m.online,
-      muted: mine ? (S.mutes[key] || 0) > Date.now() : !!m.muted
+      muted: mine ? (S.mutes[key] || 0) > Date.now() : !!m.muted,
+      hasKey: !S.e2ee ? true : mine ? this._hostHasKey(S, key) : m.hasKey !== false
     }))
     return {
       id: S.id, name: S.name, mine, hostKey: S.hostKey, myRole, members, channels: S.channels,
       hostOnline: mine || !!this._peer(S.hostKey),
+      e2ee: !!S.e2ee, ownerKey: S.ownerKey || null, needsRotation: !!S.needsRotation,
+      hasKey: S.e2ee ? !!(S.epoch && (S.keys || {})[S.epoch]) : true,
       bans: mine && RANK[myRole] >= RANK.admin ? S.bans.slice() : [], // solo el anfitrión conoce la lista
       audit: RANK[myRole] >= RANK.admin ? (S.audit || []).slice(-L.auditMax) : []
     }
   }
 
-  list() { return Object.values(this.all).map((S) => { const v = this._view(S); return { id: v.id, name: v.name, mine: v.mine, myRole: v.myRole, hostOnline: v.hostOnline } }) }
+  list() { return Object.values(this.all).map((S) => { const v = this._view(S); return { id: v.id, name: v.name, mine: v.mine, myRole: v.myRole, hostOnline: v.hostOnline, e2ee: v.e2ee } }) }
   get(sid) { const S = this.all[sid]; if (!S) throw fail('Servidor no encontrado'); return this._view(S) }
   messages(sid, cid) {
     const S = this.all[sid]
@@ -120,17 +132,33 @@ class Servers {
 
   // ---------- Crear, invitar y unirse ----------
 
-  create(name) {
+  // 'ownerKey': si el anfitrión es un equipo sin persona (Raspberry Pi), el dueño es otra clave.
+  // opts.e2ee (por defecto true): servidor cifrado de extremo a extremo.
+  create(name, ownerKey = null, opts = {}) {
+    const useE2ee = opts.e2ee !== false
+    if (useE2ee && !this.node.e2eeReady) throw fail('Tu identidad no permite el cifrado de extremo a extremo (actualiza la app)')
     name = clean(name, 40)
     if (!name) throw fail('Escribe un nombre para el servidor')
     if (Object.values(this.all).filter((s) => s.hostKey === this.me).length >= L.maxServersHosted) throw fail('Ya tienes demasiados servidores')
+    const owner = typeof ownerKey === 'string' && KEY_RE.test(ownerKey) ? ownerKey : this.me
     const sid = rid(8)
     const cid = rid(4)
     this.all[sid] = {
       id: sid, name, hostKey: this.me, created: Date.now(),
       channels: [{ id: cid, name: 'general' }],
-      members: { [this.me]: { name: this.node.name, role: 'owner', verified: !!this.node.cert, joined: Date.now() } },
+      members: {
+        [owner]: owner === this.me
+          ? { name: this.node.name, role: 'owner', verified: !!this.node.cert, joined: Date.now() }
+          : { name: 'Dueño', role: 'owner', verified: false, joined: Date.now() }
+      },
       bans: [], mutes: {}, invites: {}, audit: [], msgs: { [cid]: [] }
+    }
+    if (useE2ee) {
+      Object.assign(this.all[sid], {
+        e2ee: true, ownerKey: owner, epoch: 0, keys: {}, approved: {}, inviteSecrets: {}, relay: { [cid]: [] },
+        keyBox: {}, needsRotation: false, epochSeen: 0, unsent: [], pendingApprovals: [], undec: []
+      })
+      if (owner === this.me) this._ownerProcess(this.all[sid]) // crea la clave de la época 1
     }
     this._save()
     this._emit({ sid })
@@ -138,9 +166,12 @@ class Servers {
   }
 
   join(code) {
-    const m = INVITE_RE.exec(String(code || '').trim())
+    const text = String(code || '').trim()
+    const m2 = INVITE2_RE.exec(text)
+    const m = m2 || INVITE_RE.exec(text)
     if (!m) throw fail('El código de invitación no es válido')
-    const [, hostKey, sid, token] = m
+    const [, hostKey, sid, token, ownerKey, secret] = m
+    if (m2 && !this.node.e2eeReady) throw fail('Tu identidad no permite el cifrado de extremo a extremo (actualiza la app)')
     if (hostKey === this.me) throw fail('Ese servidor es tuyo')
     if (this.all[sid]) throw fail('Ya estás en ese servidor')
     if (this.pending.has(sid)) throw fail('Ya estás intentando unirte a ese servidor')
@@ -148,7 +179,7 @@ class Servers {
       if (this.pending.delete(sid)) this._emit({ sid, error: 'No se pudo conectar con el anfitrión. ¿Está encendido su PC?' })
     }, L.joinTimeoutMs)
     timer.unref?.()
-    this.pending.set(sid, { hostKey, token, timer })
+    this.pending.set(sid, m2 ? { hostKey, token, owner: ownerKey, secret, e2ee: true, timer } : { hostKey, token, timer })
     this.node.swarm?.joinPeer(Buffer.from(hostKey, 'hex'))
     const peer = this._peer(hostKey)
     if (peer) this.onPeerReady(peer)
@@ -176,6 +207,7 @@ class Servers {
   send(sid, cid, text) {
     const S = this.all[sid]
     if (!S) throw fail('Servidor no encontrado')
+    if (S.e2ee) return this._sendE2ee(S, cid, text)
     if (S.hostKey === this.me) return this._hostPost(S, this.me, cid, text)
     this.node._send(this._hostPeerOrThrow(S), { t: 'srv-send', sid, cid, text: bodyText(text) })
   }
@@ -183,6 +215,7 @@ class Servers {
   edit(sid, cid, id, text) {
     const S = this.all[sid]
     if (!S) throw fail('Servidor no encontrado')
+    if (S.e2ee) throw fail('Editar mensajes no está disponible en servidores cifrados')
     if (S.hostKey === this.me) return this._hostEdit(S, this.me, cid, id, text)
     this.node._send(this._hostPeerOrThrow(S), { t: 'srv-edit', sid, cid, id, text: bodyText(text) })
   }
@@ -197,6 +230,7 @@ class Servers {
   admin(sid, op, args = {}) {
     const S = this.all[sid]
     if (!S) throw fail('Servidor no encontrado')
+    if (S.e2ee && op === 'invite') return this._e2eeInvite(S, args)
     if (S.hostKey === this.me) return this._hostAdmin(S, this.me, op, args)
     this.node._send(this._hostPeerOrThrow(S), { t: 'srv-admin', sid, op, a: args })
     return { pending: true } // la respuesta llega después (por ejemplo, el código de invitación)
@@ -207,12 +241,22 @@ class Servers {
   // Un par de la red terminó su presentación (hello).
   onPeerReady(peer) {
     for (const [sid, p] of this.pending) {
-      if (p.hostKey === peer.key) this.node._send(peer, { t: 'srv-join', sid, token: p.token })
+      if (p.hostKey !== peer.key) continue
+      if (p.e2ee) {
+        const x = this._xkeys()
+        this.node._send(peer, { t: 'srv-join', sid, token: p.token, xk: this._xk(), proof: e2.joinProof(p.secret, sid, this.me, x.pubHex) })
+      } else {
+        this.node._send(peer, { t: 'srv-join', sid, token: p.token })
+      }
     }
     for (const S of Object.values(this.all)) {
       if (S.hostKey !== peer.key) continue
-      const since = Math.max(0, ...Object.values(S.msgs).map((l) => (l.length ? l[l.length - 1].ts : 0)))
+      const since = S.e2ee ? S.syncTs || 0 : Math.max(0, ...Object.values(S.msgs).map((l) => (l.length ? l[l.length - 1].ts : 0)))
       this.node._send(peer, { t: 'srv-hello', sid: S.id, since })
+      if (S.e2ee && S.ownerKey === this.me && S.unsent && S.unsent.length) { // claves que no pudieron entregarse
+        const boxes = S.unsent.splice(0, 30)
+        this.node._send(peer, { t: 'srv-keys', sid: S.id, boxes })
+      }
       this._emit({ sid: S.id })
     }
   }
@@ -231,7 +275,8 @@ class Servers {
       // hacia el anfitrión
       case 'srv-join': return this._hostJoin(peer, m)
       case 'srv-hello': return this._hostHello(peer, m)
-      case 'srv-send': return this._hostGuard(peer, m, (S) => this._hostPost(S, peer.key, m.cid, m.text))
+      case 'srv-send': return this._hostGuard(peer, m, (S) => (S.e2ee ? this._hostAcceptEnv(S, peer.key, m.cid, m.e) : this._hostPost(S, peer.key, m.cid, m.text)))
+      case 'srv-keys': return this._onKeys(peer, m)
       case 'srv-edit': return this._hostGuard(peer, m, (S) => this._hostEdit(S, peer.key, m.cid, m.id, m.text))
       case 'srv-del': return this._hostGuard(peer, m, (S) => this._hostDel(S, peer.key, m.cid, m.id))
       case 'srv-admin': return this._hostGuard(peer, m, (S) => {
@@ -249,6 +294,226 @@ class Servers {
       case 'srv-err': return this._clientErr(peer, m)
       case 'srv-gone': return this._clientGone(peer, m)
     }
+  }
+
+  // ======================= CIFRADO DE EXTREMO A EXTREMO =======================
+  // Cada miembro firma sus mensajes (Ed25519) y los cifra con la clave de grupo de la época actual.
+  // El DUEÑO genera las claves y se las entrega, selladas, a cada miembro que haya verificado (por la prueba de su invitación).
+  // El anfitrión y los repetidores solo ven sobres cifrados: no pueden leerlos, falsificarlos ni darse una clave a sí mismos.
+
+  _xkeys() {
+    const d = this.node.vault.data
+    if (!d.e2eeKeys) {
+      const k = e2.newXKeyPair()
+      d.e2eeKeys = { priv: k.priv.toString('base64'), pub: k.pub.toString('hex') }
+      this._save()
+    }
+    return { priv: Buffer.from(d.e2eeKeys.priv, 'base64'), pub: Buffer.from(d.e2eeKeys.pub, 'hex'), pubHex: d.e2eeKeys.pub }
+  }
+
+  _xk() { return e2.bindXKey(this.node.signer, this._xkeys().pubHex) }
+
+  _hostHasKey(S, key) { return key === S.ownerKey || Object.keys((S.keyBox || {})[key] || {}).length > 0 }
+
+  // Invitación de un servidor cifrado: la arma el dueño; el secreto nunca pasa por el anfitrión.
+  _e2eeInvite(S, a) {
+    if (S.ownerKey !== this.me) throw fail('En servidores cifrados solo el dueño crea invitaciones')
+    const token = rid(8)
+    const secret = rid(16)
+    const args = { hours: a && a.hours, max: a && a.max, token }
+    if (S.hostKey === this.me) this._hostAdmin(S, this.me, 'invite', args)
+    else this.node._send(this._hostPeerOrThrow(S), { t: 'srv-admin', sid: S.id, op: 'invite', a: args })
+    S.inviteSecrets ||= {}
+    const old = Object.keys(S.inviteSecrets)
+    if (old.length >= L.maxInviteSecrets) delete S.inviteSecrets[old[0]]
+    S.inviteSecrets[token] = secret
+    this._save()
+    return { code: `psrv2.${S.hostKey}.${S.id}.${token}.${S.ownerKey}.${secret}` }
+  }
+
+  // Solo actúa si YO soy el dueño: crea la clave inicial, aprueba a quien entró con una invitación válida y renueva la clave
+  // cuando alguien sale. Quien no demuestre haber recibido una invitación del dueño no recibe nunca la clave.
+  _ownerProcess(S) {
+    if (!S.e2ee || S.ownerKey !== this.me) return
+    S.approved ||= {}
+    S.inviteSecrets ||= {}
+    S.keys ||= {}
+    if (!S.epoch || !S.keys[S.epoch]) { S.epoch = (S.epoch || 0) + 1; S.keys[S.epoch] = e2.newGroupKey().toString('base64') }
+    let rotate = false
+    for (const k of Object.keys(S.approved)) if (!S.members[k]) { delete S.approved[k]; rotate = true }
+
+    const pending = S.hostKey === this.me
+      ? Object.entries(S.members).filter(([k, m]) => m.xk && k !== this.me && !S.approved[k]).map(([k, m]) => ({ key: k, xk: m.xk, proof: m.proof, tok: m.tok }))
+      : S.pendingApprovals || []
+    const fresh = []
+    for (const p of pending) {
+      if (S.approved[p.key] || !S.members[p.key]) continue
+      const secret = S.inviteSecrets[p.tok]
+      if (!secret || !e2.validXk(p.key, p.xk) || !e2.proofOk(p.proof, e2.joinProof(secret, S.id, p.key, p.xk.xpub))) continue
+      S.approved[p.key] = p.xk.xpub
+      fresh.push(p.key)
+    }
+    S.pendingApprovals = []
+    if (rotate) { S.epoch++; S.keys[S.epoch] = e2.newGroupKey().toString('base64') }
+    const boxes = (rotate ? Object.keys(S.approved) : fresh).map((k) => this._sealKey(S, k)).filter(Boolean)
+    if (boxes.length) this._deliverBoxes(S, boxes)
+    this._save()
+  }
+
+  _sealKey(S, to) {
+    const xpub = S.approved[to]
+    const key = S.keys[S.epoch]
+    if (!xpub || !key) return null
+    const box = { to, ep: S.epoch, ...e2.seal(Buffer.from(xpub, 'hex'), Buffer.from(key, 'base64'), e2.keyAad(S.id, S.epoch, to)) }
+    box.sig = this.node.signer.sign(e2.keySigData(S.id, box))
+    return box
+  }
+
+  _deliverBoxes(S, boxes) {
+    if (S.hostKey === this.me) return this._hostKeys(S, this.me, boxes)
+    const peer = this._peer(S.hostKey)
+    if (!peer) { S.unsent = [...(S.unsent || []), ...boxes].slice(-200); return }
+    for (let i = 0; i < boxes.length; i += 30) this.node._send(peer, { t: 'srv-keys', sid: S.id, boxes: boxes.slice(i, i + 30) })
+  }
+
+  // Anfitrión: guarda las cajas con claves (solo las del dueño, con su firma) y las entrega a cada miembro
+  _hostKeys(S, actor, boxes) {
+    if (!S.e2ee || actor !== S.ownerKey) throw fail('Solo el dueño puede repartir claves')
+    if (!Array.isArray(boxes)) return
+    let newest = S.epochSeen || 0
+    for (const raw of boxes.slice(0, 40)) {
+      const b = e2.okBox(raw)
+      if (!b || !S.members[b.to] || !e2.verify(S.ownerKey, e2.keySigData(S.id, b), b.sig)) continue
+      const kb = (S.keyBox[b.to] ||= {})
+      kb[b.ep] = b
+      const eps = Object.keys(kb).map(Number).sort((x, y) => x - y)
+      while (eps.length > 4) delete kb[eps.shift()]
+      newest = Math.max(newest, b.ep)
+      const p = b.to === this.me ? null : this._peer(b.to)
+      if (p) this.node._send(p, { t: 'srv-keys', sid: S.id, boxes: [b] })
+    }
+    if (newest > (S.epochSeen || 0)) { S.epochSeen = newest; S.needsRotation = false }
+    this._save()
+    this._broadcastState(S)
+  }
+
+  _sendKeys(S, peer) {
+    const boxes = Object.values((S.keyBox || {})[peer.key] || {}).sort((a, b) => a.ep - b.ep).slice(-4)
+    if (boxes.length) this.node._send(peer, { t: 'srv-keys', sid: S.id, boxes })
+  }
+
+  _onKeys(peer, m) {
+    if (this._hostServer(m.sid)) return this._hostGuard(peer, m, (S) => this._hostKeys(S, peer.key, m.boxes))
+    const S = this._fromHost(peer, m.sid)
+    if (S) this._clientKeys(S, m.boxes)
+  }
+
+  // Miembro: acepta cajas solo si traen la firma del DUEÑO (clave fijada en la invitación) y son para mí
+  _clientKeys(S, boxes) {
+    if (!S.e2ee || !Array.isArray(boxes)) return
+    const x = this._xkeys()
+    let got = false
+    for (const raw of boxes.slice(0, 8)) {
+      const b = e2.okBox(raw)
+      if (!b || b.to !== this.me || !e2.verify(S.ownerKey, e2.keySigData(S.id, b), b.sig)) continue
+      try {
+        const key = e2.open(x.priv, x.pub, b, e2.keyAad(S.id, b.ep, this.me))
+        if (key.length !== 32) continue
+        S.keys[b.ep] = key.toString('base64')
+        if (b.ep > (S.epoch || 0)) S.epoch = b.ep
+        got = true
+      } catch { /* caja alterada o para otra persona */ }
+    }
+    if (!got) return
+    const queued = S.undec || []
+    S.undec = []
+    for (const q of queued) this._clientEnv(S, q.cid, q.env, false) // mensajes que esperaban esta clave
+    this._save()
+    this._emit({ sid: S.id })
+  }
+
+  _sendE2ee(S, cid, text) {
+    const body = bodyText(text)
+    if (!body) throw fail('El mensaje está vacío')
+    if (!S.channels.some((c) => c.id === cid)) throw fail('Canal no encontrado')
+    const key = S.epoch ? (S.keys || {})[S.epoch] : null
+    if (!key) throw fail('Aún no tienes la clave de este servidor: el dueño debe aprobarte (tiene que estar en línea)')
+    const env = { id: rid(6), from: this.me, ts: Date.now(), ep: S.epoch }
+    Object.assign(env, e2.encryptGroup(Buffer.from(key, 'base64'), Buffer.from(body, 'utf8'), e2.msgAad(S.id, cid, env)))
+    env.sig = this.node.signer.sign(e2.msgSigData(S.id, cid, env))
+    if (S.hostKey === this.me) return this._hostAcceptEnv(S, this.me, cid, env)
+    this.node._send(this._hostPeerOrThrow(S), { t: 'srv-send', sid: S.id, cid, e: env })
+  }
+
+  // Anfitrión/repetidor: valida el sobre SIN poder leerlo (forma, autor, hora, firma, silencio, velocidad) y lo reparte
+  _hostAcceptEnv(S, key, cid, raw) {
+    if (!S.members[key]) throw fail('No eres miembro de este servidor')
+    if (typeof cid !== 'string' || !S.relay[cid]) throw fail('Canal no encontrado')
+    const env = e2.okEnv(raw)
+    if (!env || env.from !== key) throw fail('Mensaje no válido')
+    if (Math.abs(env.ts - Date.now()) > L.maxSkewMs) throw fail('La hora de tu equipo no coincide con la del servidor: revísala')
+    if (!e2.verify(key, e2.msgSigData(S.id, cid, env), env.sig)) throw fail('Firma no válida')
+    if ((S.mutes[key] || 0) > Date.now()) throw fail('Estás silenciado en este servidor')
+    const bk = S.id + key
+    if (!this.buckets.has(bk)) this.buckets.set(bk, new Bucket(L.msgBurst, L.msgPerSec))
+    if (!this.buckets.get(bk).take()) throw fail('Estás escribiendo demasiado rápido')
+    const list = S.relay[cid]
+    if (list.some((x) => x.id === env.id)) return // repetido
+    list.push(env)
+    if (list.length > L.histHost) list.splice(0, list.length - L.histHost)
+    this._save()
+    this._toMembers(S, { t: 'srv-msg', sid: S.id, cid, e: env })
+    if (S.members[this.me] && S.keys) this._clientEnv(S, cid, env, true) // si el anfitrión también es miembro, lo lee
+  }
+
+  _decryptEnv(S, cid, env) {
+    const key = (S.keys || {})[env.ep]
+    if (!key) return 'nokey'
+    if (!e2.verify(env.from, e2.msgSigData(S.id, cid, env), env.sig)) return null
+    try { return bodyText(e2.decryptGroup(Buffer.from(key, 'base64'), env, e2.msgAad(S.id, cid, env)).toString('utf8')) || null } catch { return null }
+  }
+
+  // Miembro: verifica la firma del autor, descifra y guarda el texto (en vivo solo hablan miembros actuales)
+  _clientEnv(S, cid, raw, live) {
+    const env = e2.okEnv(raw)
+    if (!env || typeof cid !== 'string' || !S.msgs[cid]) return false
+    S.syncTs = Math.max(S.syncTs || 0, Math.min(env.ts, Date.now()))
+    if (S.msgs[cid].some((x) => x.id === env.id)) return false
+    if (live && !S.members[env.from]) return false
+    const text = this._decryptEnv(S, cid, env)
+    if (text === 'nokey') { (S.undec ||= []).push({ cid, env }); if (S.undec.length > 300) S.undec.shift(); return false }
+    if (text === null) return false
+    const mem = S.members[env.from]
+    const msg = { id: env.id, from: env.from, name: mem ? mem.name : 'Usuario', v: !!(mem && mem.verified), ts: env.ts, text }
+    const list = S.msgs[cid]
+    list.push(msg)
+    if (!live) list.sort((x, y) => x.ts - y.ts)
+    if (list.length > L.histClient) list.splice(0, list.length - L.histClient)
+    this._save()
+    this.node.emit('server-msg', { sid: S.id, cid, m: msg, mine: msg.from === this.me, history: !live })
+    return true
+  }
+
+  _sendHistoryE2ee(S, peer, since) {
+    const frames = []
+    for (const ch of S.channels) {
+      const list = (S.relay[ch.id] || []).filter((x) => x.ts > since).slice(-(since ? L.syncMax : L.firstSync))
+      let batch = []
+      let size = 0
+      for (const e of list) {
+        const len = Buffer.byteLength(JSON.stringify(e))
+        if (batch.length && size + len > L.frameBytes) { frames.push({ t: 'srv-hist', sid: S.id, cid: ch.id, envs: batch }); batch = []; size = 0 }
+        batch.push(e); size += len
+      }
+      if (batch.length) frames.push({ t: 'srv-hist', sid: S.id, cid: ch.id, envs: batch })
+    }
+    let i = 0
+    const step = () => {
+      if (i >= frames.length || peer.conn.destroyed || this.node.peers.get(peer.key) !== peer) return
+      this.node._send(peer, frames[i++])
+      setTimeout(step, L.paceMs).unref?.()
+    }
+    step()
   }
 
   // ======================= LADO ANFITRIÓN =======================
@@ -281,7 +546,12 @@ class Servers {
     const v = this._view(S)
     return {
       id: S.id, name: S.name, channels: S.channels, you: { role: (S.members[key] || {}).role || 'member' },
-      members: v.members, audit: RANK[(S.members[key] || {}).role] >= RANK.admin ? S.audit : []
+      members: v.members, audit: RANK[(S.members[key] || {}).role] >= RANK.admin ? S.audit : [],
+      e2ee: !!S.e2ee, needsRotation: !!S.needsRotation,
+      // solo el dueño recibe los datos para aprobar a quienes entraron (su clave de cifrado y su prueba de invitación)
+      pending: S.e2ee && key === S.ownerKey
+        ? Object.entries(S.members).filter(([k, m]) => m.xk && k !== S.ownerKey && !this._hostHasKey(S, k)).slice(0, 12).map(([k, m]) => ({ key: k, xk: m.xk, proof: m.proof, tok: m.tok }))
+        : undefined
     }
   }
 
@@ -291,6 +561,7 @@ class Servers {
       if (peer) this.node._send(peer, { t: 'srv-state', s: this._stateFor(S, key) })
     }
     this._emit({ sid: S.id })
+    if (S.e2ee && S.ownerKey === this.me && S.hostKey === this.me) this._ownerProcess(S) // el dueño aprueba y renueva claves
   }
 
   _toMembers(S, obj) {
@@ -302,15 +573,22 @@ class Servers {
 
   _hostJoin(peer, m) {
     const S = this._hostServer(m.sid)
-    if (!S) return this._err(peer, String(m.sid).slice(0, 16), fail('Ese servidor ya no existe'))
+    if (!S) return this._err(peer, typeof m.sid === 'string' ? m.sid.slice(0, 16) : '', fail('Ese servidor ya no existe'))
     if (S.bans.includes(peer.key)) return this._err(peer, S.id, fail('No puedes unirte a este servidor'))
     if (!S.members[peer.key]) {
       const inv = typeof m.token === 'string' && TOKEN_RE.test(m.token) ? S.invites[m.token] : null
       if (!inv || inv.exp < Date.now() || inv.uses >= inv.max) return this._err(peer, S.id, fail('La invitación no es válida o venció'))
+      let extra = {}
+      if (S.e2ee) {
+        if (!e2.validXk(peer.key, m.xk) || typeof m.proof !== 'string' || !KEY_RE.test(m.proof)) {
+          return this._err(peer, S.id, fail('Este servidor está cifrado: usa una invitación nueva (psrv2) y actualiza la app'))
+        }
+        extra = { xk: { xpub: m.xk.xpub, sig: m.xk.sig }, proof: m.proof, tok: m.token }
+      }
       if (Object.keys(S.members).length >= L.maxMembers) return this._err(peer, S.id, fail('El servidor está lleno'))
       inv.uses++
       if (inv.uses >= inv.max) delete S.invites[m.token]
-      S.members[peer.key] = { name: peer.remoteName || 'Usuario', role: 'member', verified: !!peer.verified, joined: Date.now() }
+      S.members[peer.key] = { name: peer.remoteName || 'Usuario', role: 'member', verified: !!peer.verified, joined: Date.now(), ...extra }
       this._audit(S, peer.key, 'se unió al servidor')
       this._save()
     }
@@ -320,12 +598,13 @@ class Servers {
 
   _hostHello(peer, m) {
     const S = this._hostServer(m.sid)
-    if (!S) return this._err(peer, String(m.sid).slice(0, 16), fail('Ese servidor ya no existe'))
+    if (!S) return this._err(peer, typeof m.sid === 'string' ? m.sid.slice(0, 16) : '', fail('Ese servidor ya no existe'))
     const mem = S.members[peer.key]
     if (!mem) return this._err(peer, S.id, fail('Ya no eres miembro de este servidor'))
     mem.name = peer.remoteName || mem.name
     mem.verified = !!peer.verified
     this._broadcastState(S)
+    if (S.e2ee) this._sendKeys(S, peer)
     this._sendHistory(S, peer, Number.isFinite(m.since) ? m.since : 0)
   }
 
@@ -335,12 +614,14 @@ class Servers {
     if (!mem || mem.role === 'owner') return
     this._audit(S, peer.key, 'salió del servidor')
     delete S.members[peer.key]
+    if (S.e2ee) { delete S.keyBox[peer.key]; S.needsRotation = true }
     this._save()
     this._broadcastState(S)
   }
 
   // Envía el historial reciente en paquetes pequeños y con pausas.
   _sendHistory(S, peer, since) {
+    if (S.e2ee) return this._sendHistoryE2ee(S, peer, since)
     const frames = []
     for (const ch of S.channels) {
       let list = (S.msgs[ch.id] || []).filter((x) => x.ts > since)
@@ -390,6 +671,7 @@ class Servers {
   }
 
   _hostEdit(S, key, cid, id, text) {
+    if (S.e2ee) throw fail('Editar mensajes no está disponible en servidores cifrados')
     const { msg } = this._findMsg(S, cid, id)
     if (msg.from !== key) throw fail('Solo puedes editar tus propios mensajes')
     const body = bodyText(text)
@@ -402,6 +684,22 @@ class Servers {
   }
 
   _hostDel(S, key, cid, id) {
+    if (S.e2ee) { // el anfitrión solo ve sobres cifrados: borra por su identificador
+      const relay = typeof cid === 'string' ? S.relay[cid] : null
+      const env = relay && typeof id === 'string' ? relay.find((x) => x.id === id) : null
+      if (!env) throw fail('Mensaje no encontrado')
+      const rank = RANK[(S.members[key] || {}).role] ?? -1
+      if (env.from !== key && rank < RANK.mod) throw fail('No tienes permiso para borrar ese mensaje')
+      relay.splice(relay.indexOf(env), 1)
+      const own = S.msgs[cid] || []
+      const i = own.findIndex((x) => x.id === id)
+      if (i >= 0) own.splice(i, 1)
+      if (env.from !== key) this._audit(S, key, 'borró un mensaje de', env.from)
+      this._save()
+      this._toMembers(S, { t: 'srv-msg-del', sid: S.id, cid, id })
+      this.node.emit('server-msg', { sid: S.id, cid, removed: id })
+      return
+    }
     const { list, msg } = this._findMsg(S, cid, id)
     const rank = RANK[(S.members[key] || {}).role] ?? -1
     if (msg.from !== key && rank < RANK.mod) throw fail('No tienes permiso para borrar ese mensaje')
@@ -428,6 +726,7 @@ class Servers {
       const peer = this._peer(key)
       if (peer) this.node._send(peer, { t: 'srv-gone', sid: S.id, reason })
       delete S.members[key]
+      if (S.e2ee) { delete S.keyBox[key]; S.needsRotation = true } // quien sale ya no debe recibir claves nuevas
     }
 
     switch (op) {
@@ -439,6 +738,7 @@ class Servers {
         const id = rid(4)
         S.channels.push({ id, name })
         S.msgs[id] = []
+        if (S.e2ee) S.relay[id] = []
         return done('creó el canal #' + name)
       }
       case 'channel-rename': {
@@ -455,6 +755,7 @@ class Servers {
         if (S.channels.length <= 1) throw fail('Debe quedar al menos un canal')
         S.channels = S.channels.filter((x) => x !== c)
         delete S.msgs[c.id]
+        if (S.relay) delete S.relay[c.id]
         return done('eliminó el canal #' + c.name)
       }
       case 'rename': {
@@ -504,15 +805,17 @@ class Servers {
         return done('cambió el rol a ' + a.role + ' de', key)
       }
       case 'invite': {
-        need('mod')
+        need(S.e2ee ? 'owner' : 'mod') // en servidores cifrados la invitación lleva un secreto que solo conoce el dueño
         const now = Date.now()
         for (const [t, inv] of Object.entries(S.invites)) if (inv.exp < now || inv.uses >= inv.max) delete S.invites[t]
         if (Object.keys(S.invites).length >= L.maxInvites) throw fail('Hay demasiadas invitaciones activas')
         const hours = Number.isInteger(a.hours) ? Math.min(720, Math.max(1, a.hours)) : 24
         const max = Number.isInteger(a.max) ? Math.min(50, Math.max(1, a.max)) : 5
-        const token = rid(8)
+        const token = S.e2ee ? (typeof a.token === 'string' && TOKEN_RE.test(a.token) && !S.invites[a.token] ? a.token : null) : rid(8)
+        if (!token) throw fail('Invitación no válida')
         S.invites[token] = { exp: now + hours * 3600000, max, uses: 0, by: actor }
         this._save()
+        if (S.e2ee) return {}
         return { code: `psrv1.${this.me}.${S.id}.${token}` }
       }
       case 'close': {
@@ -549,12 +852,17 @@ class Servers {
       if (!pend || pend.hostKey !== peer.key) return // un servidor al que no me uní: se ignora
       clearTimeout(pend.timer)
       this.pending.delete(sid)
-      S = this.all[sid] = { id: sid, hostKey: peer.key, created: Date.now(), msgs: {}, members: {}, channels: [] }
+      S = this.all[sid] = {
+        id: sid, hostKey: peer.key, created: Date.now(), msgs: {}, members: {}, channels: [],
+        // en un servidor cifrado, el dueño y el cifrado vienen de la invitación (no de lo que diga el anfitrión)
+        ...(pend.e2ee ? { e2ee: true, ownerKey: pend.owner, epoch: 0, keys: {}, approved: {}, inviteSecrets: {}, undec: [], needsRotation: false } : {})
+      }
     } else if (S.hostKey !== peer.key) return
     S.name = state.name
     S.channels = state.channels
-    S.members = Object.fromEntries(state.members.map((x) => [x.key, { name: x.name, role: x.role, verified: x.verified, online: x.online, muted: x.muted }]))
+    S.members = Object.fromEntries(state.members.map((x) => [x.key, { name: x.name, role: x.role, verified: x.verified, online: x.online, muted: x.muted, hasKey: x.hasKey }]))
     S.audit = state.audit
+    if (S.e2ee) { S.needsRotation = state.needsRotation; S.pendingApprovals = state.pending; this._ownerProcess(S) }
     for (const c of S.channels) S.msgs[c.id] ||= []
     for (const cid of Object.keys(S.msgs)) if (!S.channels.some((c) => c.id === cid)) delete S.msgs[cid]
     this._save()
@@ -563,6 +871,7 @@ class Servers {
 
   _clientMsg(peer, m) {
     const S = this._fromHost(peer, m.sid)
+    if (S && S.e2ee) { if (m.e) this._clientEnv(S, m.cid, m.e, true); return } // en un servidor cifrado, el texto plano se descarta
     const msg = okMsg(m.m)
     if (!S || !msg || typeof m.cid !== 'string' || !S.msgs[m.cid]) return
     const list = S.msgs[m.cid]
@@ -575,6 +884,7 @@ class Servers {
 
   _clientEdit(peer, m) {
     const S = this._fromHost(peer, m.sid)
+    if (S && S.e2ee) return // no se aceptan ediciones del anfitrión en servidores cifrados
     const msg = S && typeof m.cid === 'string' && S.msgs[m.cid] ? S.msgs[m.cid].find((x) => x.id === m.id) : null
     const text = bodyText(m.text)
     if (!msg || !text) return
@@ -597,6 +907,13 @@ class Servers {
 
   _clientHist(peer, m) {
     const S = this._fromHost(peer, m.sid)
+    if (S && S.e2ee) {
+      if (typeof m.cid !== 'string' || !S.msgs[m.cid] || !Array.isArray(m.envs)) return
+      let added = false
+      for (const raw of m.envs.slice(0, 20)) added = this._clientEnv(S, m.cid, raw, false) || added
+      if (added) this.node.emit('server-msg', { sid: S.id, cid: m.cid, history: true })
+      return
+    }
     if (!S || typeof m.cid !== 'string' || !S.msgs[m.cid] || !Array.isArray(m.msgs)) return
     const list = S.msgs[m.cid]
     let added = false
