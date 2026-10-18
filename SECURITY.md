@@ -67,6 +67,38 @@ Riesgos propios:
 
 Cada lado anota las llamadas en su propio chat (no viaja información extra por la red). Los registros no generan avisos del sistema salvo las llamadas perdidas.
 
+## Cifrado de extremo a extremo en servidores (desde la 0.5)
+
+Los servidores nuevos nacen cifrados (🔒). Los creados antes quedan marcados "⚠ sin cifrado" y siguen como antes.
+
+**Cómo funciona** (solo con el módulo `crypto` de Node: X25519, HKDF-SHA256, AES-256-GCM y Ed25519; nada casero):
+- Cada mensaje lo **firma su autor** y se **cifra con la clave de grupo** de la "época" actual. Servidor, canal, autor, hora y época van autenticados: un sobre no se puede mover a otro canal ni atribuir a otra persona.
+- La clave de grupo la genera y reparte **solo el dueño**, sellada para cada miembro. El dueño queda **fijado en la invitación**: nadie más puede entregar claves.
+- Para recibir la clave, quien entra debe probar que tiene la invitación (una prueba HMAC con un secreto que solo conocen el dueño y quien recibe el código; **nunca el anfitrión**).
+- Cuando alguien sale, es expulsado o baneado, el dueño renueva la clave (nueva época) para los miembros restantes.
+- El anfitrión o repetidor (por ejemplo, una Raspberry Pi) guarda y reparte **solo sobres cifrados**: no tiene ninguna clave.
+
+| Amenaza | Resultado |
+|---|---|
+| El anfitrión lee los mensajes | No puede: no tiene la clave de grupo |
+| El anfitrión inventa o altera mensajes | Se descartan: falta la firma del autor o falla la autenticación del cifrado |
+| El anfitrión repite mensajes antiguos | Se ignoran (identificador repetido) |
+| El anfitrión inventa un "miembro" para recibir la clave | No recibe nada: no puede producir la prueba de invitación |
+| El anfitrión entrega una clave falsa | Se rechaza: debe llevar la firma del dueño fijado en la invitación |
+| El anfitrión dice "este servidor no está cifrado" | Se ignora: el cifrado lo fija la invitación y el texto plano se descarta |
+| Un expulsado lee lo nuevo | No, tras la renovación de clave (lo que ya recibió, lo conserva) |
+| Un miembro sin aprobar lee o escribe | No: sin clave no puede cifrar ni descifrar |
+
+**Límites honestos (léelos antes de confiar):**
+- **Los metadatos sí los ve el anfitrión:** quién escribe, cuándo, en qué canal, cuánto pesa, quién entra o sale, y las IP. Solo se protege el contenido.
+- **Sin secreto posterior al compromiso:** si alguien roba la clave de una época, puede leer toda esa época. La clave se renueva cuando alguien sale, no por cada mensaje. Para eso haría falta un protocolo como MLS.
+- **El dueño es la raíz de confianza:** si su equipo o su invitación se ven comprometidos, el cifrado también. Solo él invita y aprueba. Si está desconectado, los nuevos esperan su clave y la renovación se retrasa (la app lo avisa).
+- **Quien entra solo lee desde que se unió** (no recibe claves de épocas anteriores).
+- **No hay verificación entre miembros** (números de seguridad): confías en que la invitación llegó por un canal confiable. Un anfitrión que colabore con una persona expulsada podría hacerle llegar mensajes de épocas viejas hasta que se renueve la clave.
+- **Los mensajes no se editan** en servidores cifrados (borrarlos sí).
+- Hace falta la app 0.5 o posterior (las invitaciones nuevas empiezan por `psrv2`).
+- **Es un diseño propio sobre primitivas estándar, sin auditoría externa.** Antes de depender de él, pide una revisión a especialistas.
+
 ## Servidores (grupos alojados por el creador)
 
 El anfitrión es la autoridad; cada lado desconfía del otro.
@@ -82,7 +114,7 @@ El anfitrión es la autoridad; cada lado desconfía del otro.
 | Conexiones de "turistas" que ocupan cupos | Quien dice venir por un servidor y no se une en 10 s se corta; no genera solicitudes de chat. |
 
 Riesgos propios:
-- **El anfitrión lee todo y puede alterarlo:** mensajes, quién dijo qué y el historial. No hay cifrado de extremo a extremo entre miembros ni firmas por mensaje. Elige anfitriones de confianza.
+- **En servidores SIN cifrado (los antiguos, ⚠) el anfitrión lee todo y puede alterarlo.** En los cifrados (🔒) no puede leerlos ni falsificarlos (ver la sección anterior). Elige anfitriones de confianza.
 - **Si el anfitrión se apaga, el servidor se detiene** y su historial solo existe en su PC (y en las copias parciales de los miembros).
 - **Quien tenga un código de invitación puede unirse** mientras sea válido: compártelo solo por canales de confianza y con pocos usos.
 - Los nombres dentro de un servidor los entrega el anfitrión; la marca ✓ indica que esa persona tiene nombre registrado.
@@ -99,6 +131,35 @@ Riesgos propios:
 - **Segundo plano e inicio con el sistema:** la app sigue en línea con la ventana oculta (por eso hay un icono visible y "Salir del todo").
   El inicio automático registra la app para tu usuario de Windows y la abre con un parámetro que solo oculta la ventana. Quien use tu usuario puede ver
   la app activa; si usas "Recordar en este dispositivo", entra sin contraseña (ver riesgos de esa opción).
+
+## Archivos, enlaces, búsqueda, temas y anfitrión sin pantalla
+
+| Tema | Protección |
+|---|---|
+| **Archivos** | Nadie recibe nada sin aceptarlo: primero llega una *oferta* y el receptor decide. Máximo 10 MB por archivo, 500 MB en total y 20 ofertas sin responder por chat. Se verifica el tamaño y el SHA-256 de lo recibido (si no coincide con lo ofrecido, se descarta); paquetes con velocidad o cantidad de datos abusiva cancelan la descarga. Se guardan cifrados. Los nombres se limpian (sin rutas, sin caracteres de inversión de texto, sin nombres reservados de Windows). Los tipos ejecutables o con doble extensión se marcan como peligrosos y piden confirmación al guardarlos. **La app nunca abre ni ejecuta un archivo recibido.** Vista previa solo de imágenes PNG/JPEG/WebP verificadas (cabecera y dimensiones) y de texto plano; todo lo demás, solo ficha. |
+| **Enlaces** | Nunca se abren solos ni existen como `<a>`: se muestran como texto clicable que pide confirmación, muestra el sitio real, avisa (https ausente, dominio con caracteres especiales o IDN, dirección numérica, acortadores, puerto raro) y exige aceptar la responsabilidad. Solo `http`/`https`; se rechazan `usuario:clave@sitio` (técnica de estafa), `javascript:`, `file:`, `data:`, etc. |
+| **Buscador** | Se ejecuta en tu equipo sobre los datos ya descifrados en memoria. No guarda ningún índice en disco ni envía nada a la red. |
+| **Temas** | Solo colores `#rrggbb`, números acotados e imágenes PNG/JPEG/WebP en data URL de tamaño limitado; se aplican con propiedades CSS, nunca HTML. Se avisa si el contraste de colores es bajo. |
+| **Anfitrión sin pantalla** | Corre con un usuario sin privilegios y restricciones de systemd; no atiende chats directos ni solicitudes de contacto, solo servidores. La clave de cifrado puede entregarse por variable de entorno o guardarse en `host.key` (permisos 600). |
+
+Riesgos propios: un archivo puede contener un virus aunque no se ejecute (por eso se avisa y no se abre solo); la vista previa de imágenes usa el decodificador del navegador (mantener Electron actualizado);
+en el anfitrión sin pantalla, quien robe el disco con la clave puede leer los datos (usa cifrado de disco o `PRIVCHAT_HOST_KEY`).
+
+## Lo que aún NO existe (y por qué importa)
+
+- **No hay ocultamiento de IP.** Tus contactos, los anfitriones y la red ven tu IP. El panel "Privacidad de red" muestra quién la ve en cada caso y ofrece un **modo privado** que solo *reduce* la exposición (no apareces como nodo público y se rechaza al instante a los desconocidos). Ocultarla de verdad requiere una VPN o repetidores en capas (ver ROADMAP, Fase D). El cifrado protege el contenido, **no** la IP.
+- **No hay federación ni repetidores comunitarios:** si el anfitrión está apagado, el servidor se detiene. Un anfitrión 24/7 (Raspberry Pi) lo mantiene en línea y, en servidores cifrados, **no puede leer** lo que reparte.
+- **No hay números de seguridad** para verificar claves entre miembros.
+
+## Revisión de seguridad de la versión 0.5
+
+**Qué se hizo:** pruebas dirigidas de ataque (anfitrión malicioso, miembro sin permiso, desconocido, perfiles y archivos hostiles, claves y firmas falsas); un *fuzzer* que envía decenas de miles de mensajes aleatorios y mal formados desde cada tipo de remitente (contacto, miembro, desconocido y anfitrión) con 13 semillas distintas; y una revisión estática (la pantalla no usa APIs peligrosas ni hace conexiones; el programa principal no usa `eval` ni lanza procesos).
+
+**Hallazgos corregidos:**
+- Un campo `toString` malicioso dentro de un mensaje hacía fallar la conversión a texto y cerraba la conexión de forma no controlada (`String(objeto)`). Ahora solo se convierten valores que ya son texto.
+- (0.4) Una actualización de perfil enviada poco después de otra se ignoraba por un límite mal planteado; los miembros de un servidor ocupaban el cupo de conexiones de desconocidos.
+
+**Lo que NO se pudo hacer:** auditoría externa; pruebas con la red real (solo simulada); auditoría de dependencias (`npm audit` necesita internet y corre al compilar en GitHub); probar la ventana real de Electron ni el instalador.
 
 ## Riesgos que siguen existiendo
 

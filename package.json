@@ -1,13 +1,13 @@
 {
   "name": "privchat",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "description": "Chat y llamadas entre computadores, sin servidor central",
   "main": "src/main.js",
   "license": "AGPL-3.0-or-later",
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node test/smoke.js && node test/protocol.js && node test/profile.js && node test/servers.js && node test/server.js && node test/ui-smoke.js && node test/consistency.js",
+    "test": "node test/smoke.js && node test/e2ee.js && node test/privacy.js && node test/protocol.js && node test/profile.js && node test/servers.js && node test/e2ee-servers.js && node test/headless.js && node test/files.js && node test/links-search.js && node test/fuzz.js && node test/server.js && node test/ui-smoke.js && node test/consistency.js",
     "dist:win": "electron-builder --win --x64 --publish never"
   },
   "dependencies": {
