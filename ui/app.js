@@ -11,6 +11,7 @@ const state = {
   node: null,
   active: null,          // clave del contacto con el chat abierto
   unread: new Set(),
+  focusMsg: null,        // mensaje al que saltar después de abrir un chat desde el buscador
   verification: false,   // true si hay servicio de verificación: entonces se muestran las marcas
   call: { state: 'idle' }
 }
@@ -71,17 +72,40 @@ function toast(text) {
 
 // ---------- Arranque ----------
 
+// Pantalla de carga: se muestra mientras la app prepara lo que necesita.
+function loading(text) {
+  show('loading')
+  $('loading-text').textContent = text
+}
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+// Espera (con tope de tiempo) a que la red esté lista; si tarda, la app abre igual y sigue intentando.
+async function waitForNetwork(ms) {
+  const t0 = Date.now()
+  while (Date.now() - t0 < ms) {
+    if (state.node && (state.node.ready || state.node.error)) return
+    await sleep(150)
+  }
+  $('loading-text').textContent = 'La red tarda en responder: la app seguirá intentando.'
+  await sleep(700)
+}
+
 async function boot() {
+  loading('Abriendo la aplicación…')
   const r = await rpc('boot')
   if (r.loggedIn) return enterApp()
   show(r.hasAccounts ? 'login' : 'signup')
 }
 
 async function enterApp() {
+  loading('Abriendo tu cuenta…')
   await refreshMe()
+  loading('Cargando contactos y servidores…')
   await refreshContacts()
+  await ServersUI.refreshList()
+  loading('Conectando con la red…')
+  await waitForNetwork(7000)
   show('main')
-  ServersUI.refreshList()
 }
 
 // El área principal muestra un chat con un contacto o un servidor.
@@ -93,6 +117,9 @@ function showArea(area) {
 // ---------- Iniciar sesión / crear cuenta ----------
 
 $('to-signup').onclick = (e) => { e.preventDefault(); show('signup') }
+$('to-theme').onclick = (e) => { e.preventDefault(); ThemeUI.open() }
+$('btn-theme').onclick = () => ThemeUI.open()
+ThemeUI.init()
 $('to-login').onclick = (e) => { e.preventDefault(); show('login') }
 
 $('login-form').onsubmit = async (e) => {
@@ -303,6 +330,14 @@ $('add-form').onsubmit = async (e) => {
   }
 }
 
+$('btn-attach').onclick = async () => {
+  if (!state.active) return
+  try {
+    const r = await rpc('file-send', { key: state.active })
+    if (!r.canceled) toast('Archivo ofrecido: tu contacto decide si lo descarga.')
+  } catch (err) { toast(err.message) }
+}
+
 $('btn-profile').onclick = () => {
   const c = state.contacts.find((x) => x.key === state.active)
   if (c) openProfile(c)
@@ -311,6 +346,7 @@ $('me-avatar').onclick = () => ProfileUI.view({ key: state.me.code, name: state.
 $('me-avatar').onkeydown = (e) => { if (e.key === 'Enter') $('me-avatar').click() }
 ProfileUI.init({ rpc, toast, getMe: () => state.me, onSaved: () => refreshOwnAvatar() })
 ServersUI.init({ rpc, toast, getMe: () => state.me, showArea })
+LinkUI.init({ rpc, toast })
 
 $('btn-copy').onclick = async () => {
   try {
@@ -355,6 +391,55 @@ function renderChatHeader() {
   $('btn-call').hidden = !(c.online && state.call.state === 'idle')
 }
 
+function formatSize(n) {
+  return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'
+}
+
+// Ficha de un archivo compartido. La vista previa solo muestra imágenes verificadas o texto plano; nada se abre ni se ejecuta.
+function fileCard(m, time) {
+  const f = m.file
+  const key = state.active
+  const card = el('div', 'filecard ' + (m.from === 'me' ? 'me' : 'them'))
+  card.dataset.id = m.id
+  card.append(
+    el('div', 'fname', '📎 ' + f.name),
+    el('div', 'small muted', formatSize(f.size) + ' · ' + f.mime + ' · SHA-256 ' + f.sha.slice(0, 12) + '…')
+  )
+  if (f.dangerous) card.append(el('div', 'small error', '⚠ Este tipo de archivo puede contener virus. No lo abras si no confías al 100 % en quien lo envió.'))
+  const row = el('div', 'row')
+  const preview = el('div', 'fpreview')
+  const button = (label, fn) => { const b = el('button', '', label); b.type = 'button'; b.onclick = fn; row.append(b) }
+  const run = async (fn) => { try { return await fn() } catch (err) { toast(err.message) } }
+
+  if (f.state === 'offered') button('Descargar (' + formatSize(f.size) + ')', () => run(() => rpc('file-download', { key, id: m.id })))
+  else if (f.state === 'downloading') row.append(el('span', 'small muted', 'Descargando…'))
+  else if (f.state === 'failed') button('Reintentar descarga', () => run(() => rpc('file-download', { key, id: m.id })))
+  else {
+    button('Vista previa', () => run(async () => {
+      const p = (await rpc('file-get', { key, id: m.id })).preview
+      preview.replaceChildren()
+      if (p.kind === 'image') {
+        const img = document.createElement('img')
+        img.className = 'fimg'
+        img.alt = ''
+        img.src = p.url
+        preview.append(img)
+      } else if (p.kind === 'text') {
+        preview.append(el('pre', 'ftext', p.text + (p.truncated ? '\n…' : '')))
+      } else {
+        preview.append(el('div', 'small muted', 'No hay vista previa para este tipo de archivo (por seguridad, la app nunca abre archivos).'))
+      }
+    }))
+    button('Guardar como…', () => run(async () => {
+      if (f.dangerous && !confirm('⚠ Este archivo es de un tipo que puede contener virus.\n\nGuardarlo no lo ejecuta, pero si luego lo abres, será bajo tu responsabilidad.\n\n¿Guardarlo igualmente?')) return
+      const r = await rpc('file-save', { key, id: m.id })
+      if (r.saved) toast('Archivo guardado')
+    }))
+  }
+  card.append(row, preview, el('div', 'meta small muted', time + (m.from === 'me' ? (m.status === 'delivered' ? ' ✓' : ' ⏳') : '')))
+  return card
+}
+
 function callText(c) {
   const mmss = (s) => String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0')
   const out = c.dir === 'out'
@@ -380,12 +465,21 @@ async function loadChat(key) {
       box.append(el('div', 'callog', callText(m.call) + ' · ' + time))
       continue
     }
+    if (m.kind === 'file') { box.append(fileCard(m, time)); continue }
     const status = m.from === 'me' ? (m.status === 'delivered' ? ' ✓' : ' ⏳') : ''
     const bubble = el('div', 'msg ' + (m.from === 'me' ? 'me' : 'them'))
-    bubble.append(el('span', '', m.text), el('span', 'meta', time + status))
+    bubble.dataset.id = m.id
+    const body = el('span', '')
+    LinkUI.render(m.text, body)
+    bubble.append(body, el('span', 'meta', time + status))
     box.append(bubble)
   }
   box.scrollTop = box.scrollHeight
+  if (state.focusMsg) { // venimos del buscador: ir al mensaje y resaltarlo
+    const target = [...box.children].find((n) => n.dataset && n.dataset.id === state.focusMsg)
+    state.focusMsg = null
+    if (target) { target.scrollIntoView({ block: 'center' }); target.classList.add('flash') }
+  }
 }
 
 $('send-form').onsubmit = async (e) => {
@@ -526,6 +620,56 @@ function playChunk(bytes) {
   source.start(audio.nextTime)
   audio.nextTime += buffer.duration
 }
+
+// ---------- Privacidad de red ----------
+
+async function openPrivacy() {
+  const r = await rpc('privacy-get')
+  $('privacy-mode').textContent = { private: 'Privado', normal: 'Normal', custom: 'Personalizado' }[r.mode]
+  const ul = $('privacy-rows')
+  ul.replaceChildren()
+  for (const row of r.rows) {
+    const li = el('li', '')
+    li.append(el('span', 'lvl ' + row.level, row.level), el('strong', '', row.who + ': '), el('span', '', row.sees))
+    ul.append(li)
+  }
+  $('privacy-on').disabled = r.mode === 'private'
+  $('privacy-off').disabled = r.mode === 'normal'
+  if (!$('privacy-dialog').open) $('privacy-dialog').showModal()
+}
+$('btn-privacy').onclick = () => openPrivacy().catch((err) => toast(err.message))
+$('privacy-on').onclick = async () => { try { await rpc('privacy-set', { mode: 'private' }); await refreshMe(); await openPrivacy() } catch (err) { toast(err.message) } }
+$('privacy-off').onclick = async () => { try { await rpc('privacy-set', { mode: 'normal' }); await refreshMe(); await openPrivacy() } catch (err) { toast(err.message) } }
+$('privacy-close').onclick = () => $('privacy-dialog').close()
+
+// ---------- Buscador ----------
+
+let searchTimer = null
+async function runSearch() {
+  const q = $('search-q').value.trim()
+  const ul = $('search-results')
+  ul.replaceChildren()
+  if (q.length < 2) return
+  let results = []
+  try { results = (await rpc('search', { q, scope: $('search-scope').value })).results } catch (err) { return toast(err.message) }
+  if (!results.length) ul.append(el('li', 'muted small', 'No se encontró nada.'))
+  for (const r of results) {
+    const li = el('li', 'result')
+    const when = new Date(r.ts).toLocaleString([], { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+    const where = r.type === 'chat' ? 'Chat con ' + (r.who || 'contacto') : r.server + ' › #' + r.channel
+    const author = r.type === 'chat' ? (r.mine ? 'Tú' : r.who || '') : r.name
+    li.append(el('div', 'small muted', where + ' · ' + author + ' · ' + when), el('div', '', r.text))
+    li.onclick = () => {
+      $('search-dialog').close()
+      if (r.type === 'chat') { state.focusMsg = r.id; openChat(r.key) } else ServersUI.open(r.sid, { cid: r.cid, id: r.id })
+    }
+    ul.append(li)
+  }
+}
+$('btn-search').onclick = () => { $('search-dialog').showModal(); $('search-q').focus() }
+$('search-q').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 250) }
+$('search-scope').onchange = runSearch
+$('search-close').onclick = () => $('search-dialog').close()
 
 // ---------- Ajustes ----------
 

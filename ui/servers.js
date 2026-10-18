@@ -14,7 +14,7 @@ const ServersUI = (() => {
   let toast = () => {}
   let getMe = () => null
   let showArea = () => {}
-  const st = { list: [], current: null, view: null, cid: null, unread: new Set(), joining: false }
+  const st = { list: [], current: null, view: null, cid: null, unread: new Set(), joining: false, focus: null }
 
   function el(tag, cls, text) {
     const e = document.createElement(tag)
@@ -48,6 +48,12 @@ const ServersUI = (() => {
     try { return await fn() } catch (err) { toast(err.message); return null }
   }
 
+  // Si dos personas del servidor se llaman igual, se añade parte de su código para distinguirlas (anti-suplantación)
+  function shown(name, key) {
+    const dup = st.view && st.view.members.some((m) => m.key !== key && m.name.toLowerCase() === String(name).toLowerCase())
+    return dup ? name + ' · ' + key.slice(0, 4) : name
+  }
+
   const can = (min) => st.view && RANK[st.view.myRole] >= RANK[min]
   const channelKey = (sid, cid) => sid + ':' + cid
 
@@ -60,7 +66,7 @@ const ServersUI = (() => {
     if (!st.list.length) ul.append(el('li', 'muted small', 'Aún no estás en ningún servidor.'))
     for (const s of st.list) {
       const li = el('li', 'contact' + (s.id === st.current ? ' active' : ''))
-      li.append(el('span', 'dot ' + (s.hostOnline ? 'on' : 'off')), el('span', '', s.name))
+      li.append(el('span', 'dot ' + (s.hostOnline ? 'on' : 'off')), el('span', '', (s.e2ee ? '🔒 ' : '⚠ ') + s.name))
       if ([...st.unread].some((k) => k.startsWith(s.id + ':'))) li.append(el('span', 'badge', '●'))
       li.onclick = () => open(s.id)
       ul.append(li)
@@ -69,9 +75,10 @@ const ServersUI = (() => {
 
   // ---------- Vista de un servidor ----------
 
-  async function open(sid) {
+  async function open(sid, focus = null) {
     st.current = sid
-    st.cid = null
+    st.cid = focus ? focus.cid : null
+    st.focus = focus
     showArea('server')
     await refreshView()
     refreshList()
@@ -84,16 +91,32 @@ const ServersUI = (() => {
     if (!v.channels.some((c) => c.id === st.cid)) st.cid = v.channels[0].id
     st.unread.delete(channelKey(v.id, st.cid))
     byId('srv-name').textContent = v.name
-    byId('srv-role').textContent = ROLE_LABEL[v.myRole] + (v.mine ? ' · anfitrión (tu PC)' : '')
+    byId('srv-role').textContent = ROLE_LABEL[v.myRole] + (v.mine ? ' · anfitrión (tu PC)' : '') + (v.e2ee ? ' · 🔒 cifrado de extremo a extremo' : ' · ⚠ sin cifrado')
     byId('srv-host').textContent = v.hostOnline ? '● anfitrión en línea' : '○ anfitrión desconectado'
-    byId('srv-invite').hidden = !can('mod')
+    byId('srv-invite').hidden = !(v.e2ee ? v.myRole === 'owner' : can('mod')) // en servidores cifrados solo el dueño invita
     byId('srv-rename').hidden = !can('admin')
     byId('srv-leave').textContent = v.mine ? 'Eliminar servidor' : 'Salir'
-    byId('srv-form').hidden = !v.hostOnline
+    byId('srv-form').hidden = !(v.hostOnline && (!v.e2ee || v.hasKey))
+    renderNote()
     renderChannels()
     renderMembers()
     renderAudit()
     await loadMessages()
+  }
+
+  // Aviso sobre el estado del cifrado
+  function renderNote() {
+    const v = st.view
+    const note = byId('srv-note')
+    let text = ''
+    let warn = false
+    if (!v.e2ee) { text = '⚠ Servidor sin cifrado de extremo a extremo: el anfitrión puede leer todo lo que se escribe aquí.'; warn = true }
+    else if (!v.hasKey) { text = '⏳ Esperando que el dueño te apruebe y te entregue la clave (debe estar conectado). Aún no puedes leer ni escribir. Si tienes una invitación antigua, pide una nueva.' }
+    else if (v.needsRotation) { text = '⚠ Alguien salió del servidor y falta que el dueño renueve la clave. Hasta entonces, quien salió podría seguir leyendo si el anfitrión se lo permite.'; warn = true }
+    else if (v.mine && v.myRole === 'owner') { text = '🔒 Cifrado de extremo a extremo. Quienes entren solo leerán lo que se escriba desde que se unan.' }
+    note.hidden = !text
+    note.textContent = text
+    note.className = 'small srv-note' + (warn ? ' warn' : '')
   }
 
   function renderChannels() {
@@ -132,7 +155,7 @@ const ServersUI = (() => {
     for (const m of st.view.members) {
       const li = el('li', 'smember')
       const head = el('div', 'row')
-      head.append(el('span', 'dot ' + (m.online ? 'on' : 'off')), el('span', '', m.name + (m.verified ? ' ✓' : '')), el('span', 'small muted', ROLE_LABEL[m.role] + (m.muted ? ' · silenciado' : '')))
+      head.append(el('span', 'dot ' + (m.online ? 'on' : 'off')), el('span', '', shown(m.name, m.key) + (m.verified ? ' ✓' : '')), el('span', 'small muted', ROLE_LABEL[m.role] + (m.muted ? ' · silenciado' : '') + (m.hasKey === false ? ' · sin clave' : '')))
       li.append(head)
       if (m.key !== myKey && RANK[m.role] < myRank) {
         const tools = el('div', 'row')
@@ -196,12 +219,14 @@ const ServersUI = (() => {
       const mine = m.from === me.code
       const bubble = el('div', 'msg ' + (mine ? 'me' : 'them'))
       const time = new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      bubble.append(el('span', 'who', m.name + (m.v ? ' ✓' : '') + ' · ' + time + (m.edited ? ' · editado' : '')))
-      const body = el('span', mentionRe.test(m.text) ? 'mention' : '', m.text)
+      bubble.append(el('span', 'who', shown(m.name, m.from) + (m.v ? ' ✓' : '') + ' · ' + time + (m.edited ? ' · editado' : '')))
+      bubble.dataset.id = m.id
+      const body = el('span', mentionRe.test(m.text) ? 'mention' : '')
+      LinkUI.render(m.text, body)
       bubble.append(body)
       if (mine || can('mod')) {
         const tools = el('span', 'tools')
-        if (mine) {
+        if (mine && !st.view.e2ee) { // en servidores cifrados no se editan mensajes
           const edit = el('button', '', 'Editar'); edit.type = 'button'
           edit.onclick = async () => {
             const text = await ask({ title: 'Editar mensaje', value: m.text, okLabel: 'Guardar' })
@@ -217,6 +242,11 @@ const ServersUI = (() => {
       box.append(bubble)
     }
     box.scrollTop = box.scrollHeight
+    if (st.focus) { // venimos del buscador
+      const target = [...box.children].find((n) => n.dataset && n.dataset.id === st.focus.id)
+      st.focus = null
+      if (target) { target.scrollIntoView({ block: 'center' }); target.classList.add('flash') }
+    }
   }
 
   // ---------- Botones ----------
@@ -234,7 +264,7 @@ const ServersUI = (() => {
 
   function bind() {
     byId('btn-srv-create').onclick = async () => {
-      const name = await ask({ title: 'Crear servidor', text: 'Se aloja en tu PC: mantén la app abierta (o en segundo plano) para que tus miembros puedan conectarse.', okLabel: 'Crear' })
+      const name = await ask({ title: 'Crear servidor', text: 'Se aloja en tu PC: mantén la app abierta (o en segundo plano). Los mensajes se cifran de extremo a extremo: solo los miembros pueden leerlos. Tú, como dueño, apruebas las entradas y renuevas la clave.', okLabel: 'Crear' })
       if (!name) return
       const r = await act(() => rpc('srv-create', { name }))
       if (r) { await refreshList(); open(r.server.id) }

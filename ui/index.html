@@ -9,6 +9,16 @@
 </head>
 <body>
 
+  <!-- PANTALLA DE CARGA -->
+  <section id="screen-loading" class="screen center">
+    <div class="card loading">
+      <img class="load-icon" src="../assets/icon.png" alt="">
+      <h1>PrivChat</h1>
+      <div class="spinner" role="progressbar" aria-label="Cargando"></div>
+      <p id="loading-text" class="muted">Preparando la aplicación…</p>
+    </div>
+  </section>
+
   <!-- INICIAR SESIÓN -->
   <section id="screen-login" class="screen center" hidden>
     <form id="login-form" class="card">
@@ -25,7 +35,7 @@
       <button class="primary" type="submit">Entrar</button>
       <button id="btn-login-key" type="button">Entrar con clave de acceso (pendrive)</button>
       <p id="login-error" class="error" role="alert"></p>
-      <p class="muted">¿No tienes cuenta? <a href="#" id="to-signup">Crear cuenta</a></p>
+      <p class="muted">¿No tienes cuenta? <a href="#" id="to-signup">Crear cuenta</a> · <a href="#" id="to-theme">Apariencia</a></p>
     </form>
   </section>
 
@@ -110,6 +120,7 @@
       <h2>Contactos</h2>
       <ul id="contacts" class="plain"></ul>
 
+      <button id="btn-search" type="button">🔍 Buscar mensajes</button>
       <h2>Servidores</h2>
       <ul id="servers" class="plain"></ul>
       <div class="row">
@@ -136,6 +147,7 @@
       </header>
       <div id="messages"></div>
       <form id="send-form" hidden>
+        <button id="btn-attach" type="button" title="Enviar un archivo (máximo 10 MB)">📎</button>
         <input id="send-text" placeholder="Escribe un mensaje" autocomplete="off" maxlength="4000">
         <button class="primary" type="submit">Enviar</button>
       </form>
@@ -155,6 +167,7 @@
       </header>
       <div class="srv-body">
         <div class="srv-col">
+          <p id="srv-note" class="small srv-note" hidden></p>
           <div id="srv-channels" class="srv-channels"></div>
           <div id="srv-messages"></div>
           <form id="srv-form" class="sendform">
@@ -261,9 +274,82 @@
     <div class="row"><span class="spacer"></span><button id="fonts-close" class="primary" type="button">Listo</button></div>
   </dialog>
 
+  <!-- PRIVACIDAD DE RED -->
+  <dialog id="privacy-dialog" class="wide">
+    <h2>Privacidad de red</h2>
+    <p class="small"><strong>Importante:</strong> PrivChat conecta directamente a las personas, por eso <strong>tu IP no se oculta</strong> de tus contactos ni de los anfitriones de tus servidores. El cifrado protege el contenido, no tu IP. Para ocultarla de verdad usa una VPN de confianza; el diseño de repetidores está en la hoja de ruta.</p>
+    <p>Modo actual: <strong id="privacy-mode"></strong></p>
+    <ul id="privacy-rows" class="plain"></ul>
+    <div class="row">
+      <button id="privacy-on" class="primary" type="button">Activar modo privado</button>
+      <button id="privacy-off" type="button">Volver a normal</button>
+    </div>
+    <p class="small muted">El modo privado deja de publicarte como nodo de la red y rechaza al instante a los desconocidos. Sigues pudiendo usar tus contactos y servidores; para que alguien nuevo te encuentre, deberán añadirse mutuamente por código.</p>
+    <div class="row"><span class="spacer"></span><button id="privacy-close" type="button">Cerrar</button></div>
+  </dialog>
+
+  <!-- ENLACE EXTERNO -->
+  <dialog id="link-dialog">
+    <h2>⚠ Vas a abrir un enlace externo</h2>
+    <p>Se abrirá en tu navegador, fuera de PrivChat. Lo envió otra persona y <strong>PrivChat no puede comprobar que sea seguro</strong>: podría ser una estafa, un sitio falso o contener virus.</p>
+    <div class="small muted">Sitio al que se dirige:</div>
+    <div id="link-host" class="linkhost"></div>
+    <code id="link-url"></code>
+    <ul id="link-warnings" class="plain small error"></ul>
+    <label class="check"><input id="link-agree" type="checkbox"> Entiendo que abrir enlaces de personas desconocidas es bajo mi absoluta responsabilidad.</label>
+    <div class="row ask-row"><button id="link-cancel" type="button">Cancelar</button><span class="spacer"></span><button id="link-open" class="primary" type="button" disabled>Abrir enlace</button></div>
+  </dialog>
+
+  <!-- BUSCADOR -->
+  <dialog id="search-dialog" class="wide">
+    <h2>Buscar mensajes</h2>
+    <div class="row">
+      <input id="search-q" placeholder="Palabras a buscar (sin importar mayúsculas ni tildes)" autocomplete="off">
+      <select id="search-scope"><option value="all">Todo</option><option value="chats">Chats</option><option value="servers">Servidores</option></select>
+    </div>
+    <p class="small muted">La búsqueda se hace en tu equipo: no se envía nada ni se guarda ningún índice.</p>
+    <ul id="search-results" class="plain"></ul>
+    <div class="row"><span class="spacer"></span><button id="search-close" type="button">Cerrar</button></div>
+  </dialog>
+
+  <!-- APARIENCIA -->
+  <dialog id="theme-dialog">
+    <h2>Apariencia</h2>
+    <label>Tema
+      <select id="th-mode">
+        <option value="auto">Automático (como tu sistema)</option>
+        <option value="light">Claro</option>
+        <option value="dark">Oscuro</option>
+        <option value="gray">Gris</option>
+        <option value="custom">Personalizado</option>
+      </select>
+    </label>
+    <div id="th-custom" hidden>
+      <label class="inline">Fondo <input id="th-bg" type="color"></label>
+      <label class="inline">Paneles <input id="th-panel" type="color"></label>
+      <label class="inline">Letra <input id="th-ink" type="color"></label>
+      <label class="inline">Bordes <input id="th-line" type="color"></label>
+      <label class="inline">Acento <input id="th-accent" type="color"></label>
+      <div class="row">
+        <button id="th-image" type="button">Foto de fondo</button>
+        <button id="th-image-clear" type="button">Quitar foto</button>
+      </div>
+      <p class="small muted">La foto reemplaza el color de fondo; los colores de bordes y letra se mantienen.</p>
+      <label class="check"><input id="th-glass" type="checkbox"> Efecto cristal (paneles semitransparentes)</label>
+      <label>Opacidad de los paneles <input id="th-opacity" type="range" min="20" max="100" step="5"></label>
+      <p id="th-contrast" class="small error" role="status"></p>
+      <button id="th-reset" type="button">Restablecer colores</button>
+    </div>
+    <p id="th-msg" class="small error" role="alert"></p>
+    <input id="th-file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+    <div class="row"><span class="spacer"></span><button id="th-close" class="primary" type="button">Listo</button></div>
+  </dialog>
+
   <!-- AJUSTES -->
   <dialog id="settings">
     <h2>Ajustes</h2>
+    <button id="btn-theme" type="button">Apariencia (tema, colores, fondo)</button>
+    <button id="btn-privacy" type="button">Privacidad de red (quién ve tu IP)</button>
     <label class="check"><input id="set-node" type="checkbox"> Ayudar a la red (modo nodo)</label>
     <p class="small muted">Tu PC ayuda a otros a encontrarse, con muy poco consumo. No guarda ni lee chats ajenos.</p>
     <label class="check"><input id="set-accept" type="checkbox"> Aceptar solicitudes de desconocidos</label>
@@ -302,6 +388,8 @@
 
   <div id="toast" role="status" hidden></div>
 
+  <script src="theme.js"></script>
+  <script src="links.js"></script>
   <script src="profile.js"></script>
   <script src="servers.js"></script>
   <script src="app.js"></script>
