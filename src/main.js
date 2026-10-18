@@ -8,8 +8,9 @@
 //  - todo lo que llega desde la pantalla se valida antes de usarse
 //  - los intentos de contraseña fallidos se frenan
 const path = require('path')
+const fs = require('fs')
 const crypto = require('crypto')
-const { app, BrowserWindow, ipcMain, dialog, session, Notification, systemPreferences, Tray, Menu, nativeImage } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, session, Notification, systemPreferences, Tray, Menu, nativeImage, shell } = require('electron')
 
 // Para probar dos usuarios en un mismo PC: PRIVCHAT_DATA=./datos-b npm start
 if (process.env.PRIVCHAT_DATA) app.setPath('userData', path.resolve(process.env.PRIVCHAT_DATA))
@@ -17,7 +18,11 @@ app.enableSandbox() // todas las ventanas aisladas del sistema
 
 const config = require('./config')
 const accounts = require('./accounts')
-const { Vault, ProfileStore } = require('./storage')
+const { Vault, ProfileStore, FileStore } = require('./storage')
+const { FILES, isDangerous, previewOf } = require('./files')
+const { checkLink } = require('./links')
+const { searchAll } = require('./search')
+const { exposure, PRESETS, modeOf } = require('./privacy')
 const { validateProfile } = require('./profile')
 const { P2PNode } = require('./network')
 const DHT = require('hyperdht')
@@ -50,6 +55,7 @@ const pick = (re, label) => (value) => {
 const sid = pick(SID_RE, 'servidor')
 const cid = pick(CID_RE, 'canal')
 const msgId = pick(MSG_RE, 'mensaje')
+const fileId = pick(/^[0-9a-f]{16}$/, 'archivo')
 function key(value) {
   if (!isKey(value)) throw new Error('Contacto no válido')
   return value
@@ -198,7 +204,8 @@ function startNode() {
     vault,
     nodeMode: vault.data.settings.nodeMode,
     cert: account.cert,
-    profiles: current.profiles
+    profiles: current.profiles,
+    fileStore: current.fileStore
   })
   node.on('presence', () => send('contacts'))
   node.on('chat', (info) => {
@@ -237,7 +244,11 @@ async function startSession(account, dataKey, initial = {}) {
   await endSession()
   const vault = new Vault(accounts.dirOf(account.id), dataKey)
   vault.load(initial) // falla si la clave no corresponde; 'initial' solo se usa en cuentas nuevas
-  current = { account, dataKey, vault, profiles: new ProfileStore(accounts.dirOf(account.id), dataKey), node: null }
+  current = {
+    account, dataKey, vault, node: null,
+    profiles: new ProfileStore(accounts.dirOf(account.id), dataKey),
+    fileStore: new FileStore(accounts.dirOf(account.id), dataKey)
+  }
   startNode()
   if (backgroundWanted()) createTray()
 }
@@ -434,7 +445,78 @@ function setupIpc() {
     return need().node.servers.admin(sid(a.sid), str(a.op, 24, 'acción'), args) // el anfitrión valida cada dato
   })
 
-  handle('chat', async (a) => ({ messages: need().node.getChat(key(a.key)) }))
+  // Enlaces: la pantalla pide la comprobación, muestra la advertencia y solo entonces pide abrirlo.
+  handle('link-check', async (a) => ({ ...checkLink(str(a.url, 2000, 'enlace')) }))
+  handle('link-open', async (a) => {
+    const r = checkLink(str(a.url, 2000, 'enlace'))
+    if (!r.ok) throw new Error(r.reason)
+    await shell.openExternal(r.url) // solo http/https, ya validado
+  })
+
+  // Privacidad de red: transparencia sobre quién ve tu IP y un modo que reduce la exposición (NO oculta la IP)
+  handle('privacy-get', async () => {
+    const { vault, node } = need()
+    const mine = Object.values(vault.data.servers)
+    const hosted = mine.filter((s) => s.hostKey === node.code)
+    const settings = { nodeMode: !!vault.data.settings.nodeMode, acceptRequests: vault.data.settings.acceptRequests !== false }
+    return {
+      mode: modeOf(settings),
+      settings,
+      rows: exposure({
+        contacts: vault.data.contacts.length, hosted: hosted.length, joined: mine.length - hosted.length,
+        members: hosted.reduce((n, s) => n + Math.max(0, Object.keys(s.members).length - 1), 0),
+        nodeMode: settings.nodeMode, acceptRequests: settings.acceptRequests, registry: !!config.REGISTRY_URL
+      })
+    }
+  })
+  handle('privacy-set', async (a) => {
+    const { vault, node } = need()
+    const p = PRESETS[a.mode === 'private' ? 'private' : 'normal']
+    node.setAcceptRequests(p.acceptRequests)
+    if (!!vault.data.settings.nodeMode !== p.nodeMode) {
+      vault.data.settings.nodeMode = p.nodeMode
+      vault.save()
+      await node.stop()
+      startNode()
+    }
+  })
+
+  // Buscador interno (todo ocurre en tu equipo)
+  handle('search', async (a) => {
+    const scope = ['all', 'chats', 'servers'].includes(a.scope) ? a.scope : 'all'
+    return { results: searchAll(need().vault.data, str(a.q, 100, 'búsqueda'), scope) }
+  })
+
+  handle('chat', async (a) => ({
+    messages: need().node.getChat(key(a.key)).map((m) => (m.kind === 'file' ? { ...m, file: { ...m.file, dangerous: isDangerous(m.file.name) } } : m))
+  }))
+
+  // Archivos: el usuario elige el archivo en una ventana del sistema (la pantalla nunca ve rutas), el contacto decide si lo descarga,
+  // y guardarlo en el disco es una decisión explícita. La app nunca abre ni ejecuta archivos.
+  handle('file-send', async (a) => {
+    const { node } = need()
+    const k = key(a.key)
+    const r = await dialog.showOpenDialog(win, { title: 'Elige el archivo que quieres enviar', properties: ['openFile'] })
+    if (r.canceled || !r.filePaths[0]) return { canceled: true }
+    const file = r.filePaths[0]
+    const st = fs.statSync(file)
+    if (!st.isFile()) throw new Error('Elige un archivo (no una carpeta)')
+    if (st.size > FILES.maxBytes) throw new Error('El archivo pesa ' + Math.round(st.size / 1048576) + ' MB y el máximo es ' + Math.round(FILES.maxBytes / 1048576) + ' MB')
+    node.offerFile(k, path.basename(file), fs.readFileSync(file))
+    return {}
+  })
+  handle('file-download', async (a) => { need().node.downloadFile(key(a.key), fileId(a.id)) })
+  handle('file-get', async (a) => {
+    const { file, bytes } = need().node.getFile(key(a.key), fileId(a.id))
+    return { file: { ...file, dangerous: isDangerous(file.name) }, preview: previewOf(file.name, bytes) }
+  })
+  handle('file-save', async (a) => {
+    const { file, bytes } = need().node.getFile(key(a.key), fileId(a.id))
+    const r = await dialog.showSaveDialog(win, { title: 'Guardar archivo', defaultPath: file.name })
+    if (r.canceled || !r.filePath) return { canceled: true }
+    fs.writeFileSync(r.filePath, bytes)
+    return { saved: true }
+  })
   handle('send', async (a) => { need().node.sendMessage(key(a.key), str(a.text, 8000, 'mensaje')) })
   handle('contact-add', async (a) => {
     need().node.addContact(str(a.code, 200, 'código'), a.name === undefined ? '' : str(a.name, 200, 'nombre'))
