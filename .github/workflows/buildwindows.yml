@@ -25,7 +25,7 @@ jobs:
         run: npm run dist:win
 
       - name: Guardar instalador/ejecutable
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: SigilChat-Windows-x64
           path: dist/*.exe
