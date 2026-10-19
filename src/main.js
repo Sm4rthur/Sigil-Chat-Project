@@ -179,14 +179,20 @@ function setupSession() {
   })
 }
 
-// Un aviso como máximo cada 5 segundos por tipo, para que nadie pueda llenarte de notificaciones.
+// Un aviso como máximo cada 5 segundos por tipo (y por contacto/servidor), para que nadie pueda
+// llenarte de notificaciones. El silencio por contacto/servidor se guarda en los ajustes locales.
 const lastNotice = new Map()
-function notify(kind, body) {
+function notify(kind, body, opts = {}) {
+  const s = (current && current.vault && current.vault.data.settings) || {}
+  if (s.notifications === false) return
+  if (opts.key && (s.mutedContacts || []).includes(opts.key)) return
+  if (opts.sid && (s.mutedServers || []).includes(opts.sid)) return
   const now = Date.now()
-  if (now - (lastNotice.get(kind) || 0) < 5000) return
+  const rateKey = kind + ':' + (opts.key || opts.sid || '')
+  if (now - (lastNotice.get(rateKey) || 0) < 5000) return
   if (win && !win.isFocused() && Notification.isSupported()) {
-    lastNotice.set(kind, now)
-    new Notification({ title: config.APP_NAME, body }).show()
+    lastNotice.set(rateKey, now)
+    new Notification({ title: config.APP_NAME, body, silent: s.notificationSound === false }).show()
   }
 }
 
@@ -210,19 +216,21 @@ function startNode() {
   node.on('presence', () => send('contacts'))
   node.on('chat', (info) => {
     send('chat', info)
-    if (info.incoming) notify('chat', 'Nuevo mensaje')
+    if (info.incoming) notify('chat', 'Nuevo mensaje', { key: info.key })
   })
   node.on('call', (call) => {
     send('call', { call })
     if (call.state === 'ringing') notify('call', 'Llamada entrante')
   })
   node.on('audio', (buf) => send('audio', { buf }))
+  node.on('voice', (info) => send('voice', info))
+  node.on('voice-end', (info) => send('voice-end', info))
   node.on('node', (info) => send('node', { info }))
   node.on('profile', (info) => send('contacts', info))
   node.on('servers', (info) => send('servers', info))
   node.on('server-msg', (info) => {
     send('server-msg', info)
-    if (info.m && !info.mine) notify('srv', 'Nuevo mensaje en un servidor')
+    if (info.m && !info.mine) notify('srv', 'Nuevo mensaje en un servidor', { sid: info.sid })
   })
   node.on('server-invite', (info) => send('server-invite', info))
   current.node = node
@@ -444,6 +452,9 @@ function setupIpc() {
     const args = a.args && typeof a.args === 'object' && !Array.isArray(a.args) ? a.args : {}
     return need().node.servers.admin(sid(a.sid), str(a.op, 24, 'acción'), args) // el anfitrión valida cada dato
   })
+  handle('srv-voice-join', async (a) => { need().node.servers.voiceJoin(sid(a.sid), cid(a.cid)) })
+  handle('srv-voice-leave', async (a) => { need().node.servers.voiceLeave(sid(a.sid), cid(a.cid)) })
+  handle('srv-voice-mute', async (a) => { need().node.servers.voiceMute(sid(a.sid), a.muted === true) })
 
   // Enlaces: la pantalla pide la comprobación, muestra la advertencia y solo entonces pide abrirlo.
   handle('link-check', async (a) => ({ ...checkLink(str(a.url, 2000, 'enlace')) }))
@@ -562,6 +573,47 @@ function setupIpc() {
 
   handle('set-accept-requests', async (a) => { need().node.setAcceptRequests(a.value === true) })
 
+  // Notificaciones: ajustes globales y silencio por contacto o servidor (se guarda en este equipo).
+  handle('notify-get', async () => {
+    const s = need().vault.data.settings
+    return {
+      notifications: s.notifications !== false,
+      sound: s.notificationSound !== false,
+      mutedContacts: (s.mutedContacts || []).slice(),
+      mutedServers: (s.mutedServers || []).slice()
+    }
+  })
+  handle('notify-set', async (a) => {
+    const { vault } = need()
+    const s = vault.data.settings
+    if (typeof a.notifications === 'boolean') s.notifications = a.notifications
+    if (typeof a.sound === 'boolean') s.notificationSound = a.sound
+    vault.save()
+    return { notifications: s.notifications !== false, sound: s.notificationSound !== false }
+  })
+  handle('mute-contact', async (a) => {
+    const { vault, node } = need()
+    const k = key(a.key)
+    if (!node._contact(k)) throw new Error('Contacto no encontrado')
+    const muted = new Set(vault.data.settings.mutedContacts || [])
+    if (a.value === true) muted.add(k)
+    else muted.delete(k)
+    vault.data.settings.mutedContacts = [...muted]
+    vault.save()
+    return { muted: muted.has(k) }
+  })
+  handle('mute-server', async (a) => {
+    const { vault, node } = need()
+    const id = sid(a.sid)
+    if (!node.servers.all[id]) throw new Error('Servidor no encontrado')
+    const muted = new Set(vault.data.settings.mutedServers || [])
+    if (a.value === true) muted.add(id)
+    else muted.delete(id)
+    vault.data.settings.mutedServers = [...muted]
+    vault.save()
+    return { muted: muted.has(id) }
+  })
+
   handle('keyfile-create', async () => {
     const { account, dataKey } = need()
     const r = await dialog.showOpenDialog(win, {
@@ -591,6 +643,15 @@ function setupIpc() {
     if (!fromOurWindow(event) || !current || !current.node) return
     const buf = ArrayBuffer.isView(data) ? Buffer.from(data.buffer, data.byteOffset, data.byteLength) : null
     if (buf && buf.length > 0 && buf.length <= 8 * 1024) current.node.sendAudio(buf)
+  })
+
+  // Audio de los canales de voz de servidor (Opus). Va aparte, como el de las llamadas.
+  ipcMain.on('voice-send', (event, data) => {
+    if (!fromOurWindow(event) || !current || !current.node) return
+    if (!data || typeof data.sid !== 'string' || typeof data.cid !== 'string') return
+    const buf = ArrayBuffer.isView(data.buf) ? Buffer.from(data.buf.buffer, data.buf.byteOffset, data.buf.byteLength) : null
+    if (!buf || buf.length === 0 || buf.length > 4 * 1024) return
+    current.node.servers.voiceSend(data.sid, data.cid, buf)
   })
 }
 

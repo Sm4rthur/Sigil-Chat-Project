@@ -3,8 +3,9 @@
 //
 //  - El anfitrión es la autoridad: guarda canales, miembros, roles, historial e invitaciones, y reenvía
 //    los mensajes a los miembros conectados. Si su PC está apagado, el servidor está inactivo.
-//  - Los miembros se conectan al anfitrión por su código; la conexión va cifrada, PERO el anfitrión
-//    puede leer todo lo que se escribe en su servidor (no es cifrado de extremo a extremo entre miembros).
+//  - Desde 0.5 los servidores nuevos van cifrados de extremo a extremo: el anfitrión guarda y reenvía
+//    sobres cifrados y no puede leer ni falsificar los mensajes. Los servidores antiguos (marcados ⚠)
+//    siguen funcionando como antes y en esos el anfitrión sí puede leer todo.
 //  - TODO lo que llega por la red se valida: el anfitrión no confía en los miembros ni los miembros
 //    en el anfitrión (tipos, largos, formato, permisos y límites de velocidad).
 const crypto = require('crypto')
@@ -12,17 +13,20 @@ const e2 = require('./e2ee')
 
 const RANK = { member: 0, mod: 1, admin: 2, owner: 3 }
 const ROLES = Object.keys(RANK)
+const ROLE_BASES = ['member', 'mod', 'admin']
 const SID_RE = /^[0-9a-f]{16}$/
 const CID_RE = /^[0-9a-f]{8}$/
 const KEY_RE = /^[0-9a-f]{64}$/
 const TOKEN_RE = /^[0-9a-f]{16}$/
 const MSG_ID_RE = /^[0-9a-f]{12}$/
+const ROLE_ID_RE = /^[0-9a-f]{8}$/
+const ROLE_COLOR_RE = /^#[0-9a-f]{6}$/i
 const INVITE2_RE = /^psrv2\.([0-9a-f]{64})\.([0-9a-f]{16})\.([0-9a-f]{16})\.([0-9a-f]{64})\.([0-9a-f]{32})$/
 const INVITE_RE = /^psrv1\.([0-9a-f]{64})\.([0-9a-f]{16})\.([0-9a-f]{16})$/
 
 const L = {
   maxMembers: 50, maxChannels: 25, maxInvites: 20, maxServersHosted: 10, maxBans: 200,
-  maxText: 2000, histHost: 500, histClient: 300, syncMax: 200, firstSync: 50, auditMax: 30,
+  maxText: 2000, histHost: 500, histClient: 300, syncMax: 200, firstSync: 50, auditMax: 30, maxCustomRoles: 20,
   msgBurst: 10, msgPerSec: 2,      // por miembro
   maxSkewMs: 10 * 60 * 1000, // diferencia máxima de hora aceptada en un mensaje cifrado
   maxInviteSecrets: 60,
@@ -60,15 +64,38 @@ function okMsg(m) {
   return out
 }
 
+// Roles personalizados: nombre + color + nivel base de permisos. El nivel base
+// sigue siendo uno de los cuatro de siempre, así que los permisos no cambian.
+function okCustomRoles(list) {
+  const seen = new Set()
+  const out = []
+  for (const r of Array.isArray(list) ? list : []) {
+    if (out.length >= L.maxCustomRoles) break
+    if (!r || typeof r.id !== 'string' || !ROLE_ID_RE.test(r.id) || seen.has(r.id)) continue
+    if (!ROLE_BASES.includes(r.base)) continue
+    const name = clean(r.name, 24)
+    if (!name) continue
+    seen.add(r.id)
+    out.push({ id: r.id, name, color: ROLE_COLOR_RE.test(r.color) ? r.color.toLowerCase() : '#9294a5', base: r.base })
+  }
+  return out
+}
+
 // Estado del servidor recibido del anfitrión -> estado limpio, o null
 function okState(s) {
   if (!s || typeof s !== 'object') return null
   const name = clean(s.name, 40)
   const channels = (Array.isArray(s.channels) ? s.channels : []).slice(0, L.maxChannels)
-    .filter((c) => c && typeof c.id === 'string' && CID_RE.test(c.id)).map((c) => ({ id: c.id, name: chanName(c.name) || 'canal' }))
+    .filter((c) => c && typeof c.id === 'string' && CID_RE.test(c.id))
+    .map((c) => ({ id: c.id, name: chanName(c.name) || 'canal', kind: c.kind === 'voice' ? 'voice' : 'text' }))
+  const customRoles = okCustomRoles(s.customRoles)
+  const roleIdFor = (m) => {
+    const id = typeof m.roleId === 'string' ? m.roleId : ''
+    return customRoles.some((r) => r.id === id && r.base === m.role) ? id : null
+  }
   const members = (Array.isArray(s.members) ? s.members : []).slice(0, L.maxMembers)
     .filter((m) => m && typeof m.key === 'string' && KEY_RE.test(m.key) && ROLES.includes(m.role))
-    .map((m) => ({ key: m.key, name: clean(m.name, 40) || 'Usuario', role: m.role, verified: m.verified === true, online: m.online === true, muted: m.muted === true, hasKey: m.hasKey !== false }))
+    .map((m) => ({ key: m.key, name: clean(m.name, 40) || 'Usuario', role: m.role, roleId: roleIdFor(m), verified: m.verified === true, online: m.online === true, muted: m.muted === true, hasKey: m.hasKey !== false }))
   const you = s.you && ROLES.includes(s.you.role) ? s.you.role : null
   if (!name || !channels.length || !members.length || !you) return null
   const audit = (Array.isArray(s.audit) ? s.audit : []).slice(-L.auditMax).map((a) => ({
@@ -79,7 +106,16 @@ function okState(s) {
     typeof p.proof === 'string' && KEY_RE.test(p.proof) && typeof p.tok === 'string' && TOKEN_RE.test(p.tok)
       ? { key: p.key, xk: { xpub: p.xk.xpub, sig: p.xk.sig }, proof: p.proof, tok: p.tok } : null
   )).filter(Boolean)
-  return { name, channels, members, you, audit, pending, needsRotation: s.needsRotation === true }
+  // Quién está en cada canal de voz (lo anuncia el anfitrión).
+  const voice = {}
+  const voiceIn = s.voice && typeof s.voice === 'object' && !Array.isArray(s.voice) ? s.voice : {}
+  for (const [cid, list] of Object.entries(voiceIn)) {
+    if (!CID_RE.test(cid) || !Array.isArray(list)) continue
+    voice[cid] = list.slice(0, L.maxMembers)
+      .filter((v) => v && typeof v.key === 'string' && KEY_RE.test(v.key))
+      .map((v) => ({ key: v.key, name: clean(v.name, 40) || 'Usuario', muted: v.muted === true }))
+  }
+  return { name, channels, members, you, customRoles, audit, pending, voice, needsRotation: s.needsRotation === true }
 }
 
 class Servers {
@@ -106,14 +142,24 @@ class Servers {
   _view(S) {
     const mine = S.hostKey === this.me
     const myRole = (S.members[this.me] || {}).role || 'member'
+    const customRoles = okCustomRoles(S.customRoles)
     const members = Object.entries(S.members).map(([key, m]) => ({
-      key, name: m.name, role: m.role, verified: !!m.verified,
+      key, name: m.name, role: m.role, roleId: m.roleId || null, verified: !!m.verified,
       online: key === this.me ? true : mine ? !!this._peer(key) : !!m.online,
       muted: mine ? (S.mutes[key] || 0) > Date.now() : !!m.muted,
       hasKey: !S.e2ee ? true : mine ? this._hostHasKey(S, key) : m.hasKey !== false
     }))
+    const voice = {}
+    for (const ch of S.channels) {
+      if (ch.kind !== 'voice') continue
+      const who = (S.voice || {})[ch.id] || {}
+      voice[ch.id] = Object.entries(who).map(([key, x]) => ({
+        key, name: x.name, muted: !!x.muted,
+        online: key === this.me ? true : (mine ? !!this._peer(key) : x.online !== false)
+      }))
+    }
     return {
-      id: S.id, name: S.name, mine, hostKey: S.hostKey, myRole, members, channels: S.channels,
+      id: S.id, name: S.name, mine, hostKey: S.hostKey, myRole, members, channels: S.channels, customRoles, voice,
       hostOnline: mine || !!this._peer(S.hostKey),
       e2ee: !!S.e2ee, ownerKey: S.ownerKey || null, needsRotation: !!S.needsRotation,
       hasKey: S.e2ee ? !!(S.epoch && (S.keys || {})[S.epoch]) : true,
@@ -122,7 +168,17 @@ class Servers {
     }
   }
 
-  list() { return Object.values(this.all).map((S) => { const v = this._view(S); return { id: v.id, name: v.name, mine: v.mine, myRole: v.myRole, hostOnline: v.hostOnline, e2ee: v.e2ee } }) }
+  list() {
+    return Object.values(this.all).map((S) => {
+      const v = this._view(S)
+      const cr = (v.customRoles || []).find((r) => r.id === (S.members[this.me] || {}).roleId)
+      return {
+        id: v.id, name: v.name, mine: v.mine, myRole: v.myRole, hostOnline: v.hostOnline, e2ee: v.e2ee,
+        myRoleName: cr ? cr.name : null, myRoleColor: cr ? cr.color : null,
+        muted: (this.node.vault.data.settings.mutedServers || []).includes(v.id)
+      }
+    })
+  }
   get(sid) { const S = this.all[sid]; if (!S) throw fail('Servidor no encontrado'); return this._view(S) }
   messages(sid, cid) {
     const S = this.all[sid]
@@ -145,13 +201,13 @@ class Servers {
     const cid = rid(4)
     this.all[sid] = {
       id: sid, name, hostKey: this.me, created: Date.now(),
-      channels: [{ id: cid, name: 'general' }],
+      channels: [{ id: cid, name: 'general', kind: 'text' }],
       members: {
         [owner]: owner === this.me
           ? { name: this.node.name, role: 'owner', verified: !!this.node.cert, joined: Date.now() }
           : { name: 'Dueño', role: 'owner', verified: false, joined: Date.now() }
       },
-      bans: [], mutes: {}, invites: {}, audit: [], msgs: { [cid]: [] }
+      bans: [], mutes: {}, invites: {}, audit: [], msgs: { [cid]: [] }, customRoles: [], voice: {}
     }
     if (useE2ee) {
       Object.assign(this.all[sid], {
@@ -189,6 +245,7 @@ class Servers {
     const S = this.all[sid]
     if (!S) return
     if (S.hostKey === this.me) throw fail('Eres el dueño: para salir debes eliminar el servidor')
+    for (const cid of Object.keys(S.voice || {})) if ((S.voice[cid] || {})[this.me]) this.node.emit('voice-end', { sid, cid })
     const peer = this._peer(S.hostKey)
     if (peer) this.node._send(peer, { t: 'srv-leave', sid })
     delete this.all[sid]
@@ -236,6 +293,69 @@ class Servers {
     return { pending: true } // la respuesta llega después (por ejemplo, el código de invitación)
   }
 
+  // ---------- Canales de voz ----------
+  // El audio viaja como paquetes Opus: el miembro se los manda al anfitrión y el
+  // anfitrión los reparte a las demás personas del mismo canal.
+
+  _voiceChannel(S, cid) {
+    const c = (S.channels || []).find((x) => x.id === cid)
+    if (!c || c.kind !== 'voice') throw fail('Canal de voz no válido')
+    return c
+  }
+
+  myVoiceCid(sid) {
+    const S = this.all[sid]
+    if (!S) return null
+    for (const [cid, who] of Object.entries(S.voice || {})) if (who && who[this.me]) return cid
+    return null
+  }
+
+  voiceJoin(sid, cid) {
+    const S = this.all[sid]
+    if (!S) throw fail('Servidor no encontrado')
+    this._voiceChannel(S, cid)
+    if (S.hostKey === this.me) this._hostVoiceJoin({ key: this.me, remoteName: this.node.name, verified: !!this.node.cert }, { sid, cid })
+    else this.node._send(this._hostPeerOrThrow(S), { t: 'srv-voice-join', sid, cid })
+  }
+
+  voiceLeave(sid, cid) {
+    const S = this.all[sid]
+    if (!S) return
+    const from = cid || this.myVoiceCid(sid)
+    if (!from) return
+    if (S.hostKey === this.me) this._hostVoiceLeave({ key: this.me }, { sid, cid: from })
+    else {
+      const peer = this._peer(S.hostKey)
+      if (peer) this.node._send(peer, { t: 'srv-voice-leave', sid, cid: from })
+    }
+    this.node.emit('voice-end', { sid, cid: from, local: true })
+  }
+
+  voiceMute(sid, muted) {
+    const S = this.all[sid]
+    if (!S) return
+    const cid = this.myVoiceCid(sid)
+    if (!cid) return
+    if (S.hostKey === this.me) this._hostVoiceMute({ key: this.me }, { sid, cid, muted: !!muted })
+    else {
+      const peer = this._peer(S.hostKey)
+      if (peer) this.node._send(peer, { t: 'srv-voice-mute', sid, cid, muted: !!muted })
+    }
+  }
+
+  // El motor de audio de la pantalla entrega aquí cada paquete capturado.
+  voiceSend(sid, cid, buf) {
+    const S = this.all[sid]
+    if (!S || !buf || !buf.length) return
+    const who = (S.voice || {})[cid]
+    if (!who || !who[this.me]) return
+    if (S.hostKey === this.me) this._broadcastVoice(S, cid, this.me, buf)
+    else {
+      const peer = this._peer(S.hostKey)
+      if (peer) this.node.sendVoice(peer, sid, cid, this.me, buf)
+    }
+  }
+
   // ---------- Eventos de conexión ----------
 
   // Un par de la red terminó su presentación (hello).
@@ -263,8 +383,16 @@ class Servers {
 
   onPeerClosed(peer) {
     for (const S of Object.values(this.all)) {
-      if (S.hostKey === this.me && S.members[peer.key]) this._broadcastState(S)
-      else if (S.hostKey === peer.key) this._emit({ sid: S.id })
+      if (S.hostKey === this.me && S.members[peer.key]) {
+        let changed = false
+        for (const [cid, who] of Object.entries(S.voice || {})) if (who && who[peer.key]) { delete who[peer.key]; changed = true }
+        if (changed) this._save()
+        this._broadcastState(S)
+      } else if (S.hostKey === peer.key) {
+        // El anfitrión se desconectó: salgo de su canal de voz si estaba en uno.
+        for (const cid of Object.keys(S.voice || {})) if ((S.voice[cid] || {})[this.me]) this.node.emit('voice-end', { sid: S.id, cid })
+        this._emit({ sid: S.id })
+      }
     }
   }
 
@@ -284,6 +412,9 @@ class Servers {
         if (r && r.code) this.node._send(peer, { t: 'srv-invite', sid: S.id, code: r.code })
       })
       case 'srv-leave': return this._hostLeave(peer, m)
+      case 'srv-voice-join': return this._hostVoiceJoin(peer, m)
+      case 'srv-voice-leave': return this._hostVoiceLeave(peer, m)
+      case 'srv-voice-mute': return this._hostVoiceMute(peer, m)
       // hacia un miembro (los envía el anfitrión)
       case 'srv-state': return this._clientState(peer, m)
       case 'srv-msg': return this._clientMsg(peer, m)
@@ -546,7 +677,8 @@ class Servers {
     const v = this._view(S)
     return {
       id: S.id, name: S.name, channels: S.channels, you: { role: (S.members[key] || {}).role || 'member' },
-      members: v.members, audit: RANK[(S.members[key] || {}).role] >= RANK.admin ? S.audit : [],
+      members: v.members, customRoles: v.customRoles, voice: v.voice,
+      audit: RANK[(S.members[key] || {}).role] >= RANK.admin ? S.audit : [],
       e2ee: !!S.e2ee, needsRotation: !!S.needsRotation,
       // solo el dueño recibe los datos para aprobar a quienes entraron (su clave de cifrado y su prueba de invitación)
       pending: S.e2ee && key === S.ownerKey
@@ -614,9 +746,76 @@ class Servers {
     if (!mem || mem.role === 'owner') return
     this._audit(S, peer.key, 'salió del servidor')
     delete S.members[peer.key]
+    for (const who of Object.values(S.voice || {})) if (who) delete who[peer.key]
     if (S.e2ee) { delete S.keyBox[peer.key]; S.needsRotation = true }
     this._save()
     this._broadcastState(S)
+  }
+
+  // ---------- Voz: lado anfitrión ----------
+
+  _hostVoiceJoin(peer, m) {
+    const S = this._hostServer(m.sid)
+    if (!S || !S.members[peer.key]) return
+    const c = (S.channels || []).find((x) => x.id === m.cid)
+    if (!c || c.kind !== 'voice') return
+    S.voice ||= {}
+    for (const [cid, who] of Object.entries(S.voice)) if (cid !== m.cid && who) delete who[peer.key] // un canal a la vez
+    S.voice[m.cid] ||= {}
+    S.voice[m.cid][peer.key] = { name: S.members[peer.key].name || peer.remoteName || 'Usuario', muted: false }
+    this._save()
+    this._broadcastState(S)
+  }
+
+  _hostVoiceLeave(peer, m) {
+    const S = this._hostServer(m.sid)
+    if (!S) return
+    let changed = false
+    for (const who of Object.values(S.voice || {})) if (who && who[peer.key]) { delete who[peer.key]; changed = true }
+    if (!changed) return
+    this._save()
+    this._broadcastState(S)
+  }
+
+  _hostVoiceMute(peer, m) {
+    const S = this._hostServer(m.sid)
+    if (!S) return
+    const who = (S.voice || {})[m.cid]
+    if (!who || !who[peer.key]) return
+    who[peer.key].muted = m.muted === true
+    this._broadcastState(S)
+  }
+
+  // Llega un paquete de voz por la conexión. El encabezado dice servidor, canal y hablante.
+  onVoice(peer, payload) {
+    const sid = payload.toString('utf8', 0, 16)
+    const cid = payload.toString('utf8', 16, 24)
+    const speaker = payload.toString('utf8', 24, 88)
+    const buf = payload.subarray(88)
+    if (!buf.length) return
+    const S = this.all[sid]
+    if (!S) return
+    if (S.hostKey === peer.key) {
+      // Viene del anfitrión: es audio de otra persona del canal. Solo si estoy en ese canal.
+      if (!S.voice || !S.voice[cid] || !S.voice[cid][speaker] || !S.voice[cid][this.me]) return
+      this.node.emit('voice', { sid, cid, from: speaker, buf })
+      return
+    }
+    // Soy el anfitrión: reenvío el audio del miembro (ignoro la clave que él diga, uso la real).
+    if (S.hostKey !== this.me || !S.members[peer.key]) return
+    if (!S.voice || !S.voice[cid] || !S.voice[cid][peer.key]) return
+    this.node.emit('voice', { sid, cid, from: peer.key, buf }) // el anfitrión también escucha
+    this._broadcastVoice(S, cid, peer.key, buf)
+  }
+
+  _broadcastVoice(S, cid, fromKey, buf) {
+    const who = (S.voice || {})[cid]
+    if (!who) return
+    for (const key of Object.keys(who)) {
+      if (key === fromKey || key === this.me) continue
+      const peer = this._peer(key)
+      if (peer) this.node.sendVoice(peer, S.id, cid, fromKey, buf)
+    }
   }
 
   // Envía el historial reciente en paquetes pequeños y con pausas.
@@ -726,6 +925,7 @@ class Servers {
       const peer = this._peer(key)
       if (peer) this.node._send(peer, { t: 'srv-gone', sid: S.id, reason })
       delete S.members[key]
+      for (const who of Object.values(S.voice || {})) if (who) delete who[key]
       if (S.e2ee) { delete S.keyBox[key]; S.needsRotation = true } // quien sale ya no debe recibir claves nuevas
     }
 
@@ -736,10 +936,11 @@ class Servers {
         if (!name) throw fail('Nombre de canal no válido')
         if (S.channels.length >= L.maxChannels) throw fail('Demasiados canales')
         const id = rid(4)
-        S.channels.push({ id, name })
+        const kind = a.kind === 'voice' ? 'voice' : 'text'
+        S.channels.push({ id, name, kind })
         S.msgs[id] = []
         if (S.e2ee) S.relay[id] = []
-        return done('creó el canal #' + name)
+        return done('creó el canal ' + (kind === 'voice' ? '🔊 ' : '#') + name)
       }
       case 'channel-rename': {
         need('admin')
@@ -756,7 +957,8 @@ class Servers {
         S.channels = S.channels.filter((x) => x !== c)
         delete S.msgs[c.id]
         if (S.relay) delete S.relay[c.id]
-        return done('eliminó el canal #' + c.name)
+        if (S.voice) delete S.voice[c.id]
+        return done('eliminó el canal ' + (c.kind === 'voice' ? '🔊 ' : '#') + c.name)
       }
       case 'rename': {
         need('admin')
@@ -801,8 +1003,54 @@ class Servers {
         need('admin')
         const key = target()
         if (!ROLES.includes(a.role) || a.role === 'owner' || RANK[a.role] >= rank(actor)) throw fail('No puedes asignar ese rol')
+        let roleId = null
+        if (a.roleId != null) {
+          const cr = (S.customRoles || []).find((r) => r.id === a.roleId)
+          if (!cr || cr.base !== a.role) throw fail('Ese rol personalizado no es válido')
+          roleId = cr.id
+        }
         S.members[key].role = a.role
-        return done('cambió el rol a ' + a.role + ' de', key)
+        if (roleId) S.members[key].roleId = roleId
+        else delete S.members[key].roleId
+        const label = roleId ? (S.customRoles.find((r) => r.id === roleId) || {}).name : a.role
+        return done('cambió el rol a ' + label + ' de', key)
+      }
+      case 'role-add': {
+        need('admin')
+        const base = ROLE_BASES.includes(a.base) ? a.base : null
+        const name = clean(a.name, 24)
+        if (!base || !name) throw fail('Rol no válido')
+        if (RANK[base] >= rank(actor)) throw fail('No puedes crear un rol con ese nivel')
+        S.customRoles = S.customRoles || []
+        if (S.customRoles.length >= L.maxCustomRoles) throw fail('Hay demasiados roles personalizados')
+        const id = rid(4)
+        S.customRoles.push({ id, name, color: ROLE_COLOR_RE.test(a.color) ? String(a.color).toLowerCase() : '#9294a5', base })
+        return done('creó el rol ' + name)
+      }
+      case 'role-edit': {
+        need('admin')
+        const r = (S.customRoles || []).find((x) => x.id === a.id)
+        if (!r) throw fail('Rol no encontrado')
+        if (RANK[r.base] >= rank(actor)) throw fail('No puedes editar ese rol')
+        const base = ROLE_BASES.includes(a.base) ? a.base : r.base
+        if (RANK[base] >= rank(actor)) throw fail('No puedes usar ese nivel')
+        const name = clean(a.name, 24)
+        if (!name) throw fail('Nombre de rol no válido')
+        r.name = name
+        r.base = base
+        if (ROLE_COLOR_RE.test(a.color)) r.color = String(a.color).toLowerCase()
+        for (const m of Object.values(S.members)) if (m.roleId === r.id) m.role = base
+        return done('editó el rol ' + name)
+      }
+      case 'role-del': {
+        need('admin')
+        const i = (S.customRoles || []).findIndex((x) => x.id === a.id)
+        if (i < 0) throw fail('Rol no encontrado')
+        const r = S.customRoles[i]
+        if (RANK[r.base] >= rank(actor)) throw fail('No puedes eliminar ese rol')
+        S.customRoles.splice(i, 1)
+        for (const m of Object.values(S.members)) if (m.roleId === r.id) delete m.roleId
+        return done('eliminó el rol ' + r.name)
       }
       case 'invite': {
         need(S.e2ee ? 'owner' : 'mod') // en servidores cifrados la invitación lleva un secreto que solo conoce el dueño
@@ -860,8 +1108,16 @@ class Servers {
     } else if (S.hostKey !== peer.key) return
     S.name = state.name
     S.channels = state.channels
-    S.members = Object.fromEntries(state.members.map((x) => [x.key, { name: x.name, role: x.role, verified: x.verified, online: x.online, muted: x.muted, hasKey: x.hasKey }]))
+    S.members = Object.fromEntries(state.members.map((x) => [x.key, { name: x.name, role: x.role, roleId: x.roleId || null, verified: x.verified, online: x.online, muted: x.muted, hasKey: x.hasKey }]))
+    S.customRoles = state.customRoles
     S.audit = state.audit
+    // Canales de voz: si el anfitrión ya no me cuenta donde estaba, corto el audio.
+    const wasIn = new Set(Object.entries(S.voice || {}).filter(([, who]) => who && who[this.me]).map(([cid]) => cid))
+    S.voice = {}
+    for (const [cid, list] of Object.entries(state.voice || {})) {
+      S.voice[cid] = Object.fromEntries(list.map((v) => [v.key, { name: v.name, muted: v.muted }]))
+    }
+    for (const cid of wasIn) if (!S.voice[cid]) this.node.emit('voice-end', { sid: S.id, cid })
     if (S.e2ee) { S.needsRotation = state.needsRotation; S.pendingApprovals = state.pending; this._ownerProcess(S) }
     for (const c of S.channels) S.msgs[c.id] ||= []
     for (const cid of Object.keys(S.msgs)) if (!S.channels.some((c) => c.id === cid)) delete S.msgs[cid]

@@ -24,7 +24,13 @@ const { createHost } = require('../headless/host')
   assert.strictEqual(host.vault.data.servers[sid].members[owner.code].role, 'owner')
   const other = host.node.servers.create('Otra', 'no-es-una-clave', { e2ee: false }) // clave inválida: el dueño pasa a ser el propio anfitrión
   assert.strictEqual(host.vault.data.servers[other.id].members[hostCode].role, 'owner')
-  assert.strictEqual(fs.statSync(path.join(dataDir, 'host.key')).mode & 0o077, 0, 'la clave solo la lee su usuario')
+  // En Windows los permisos POSIX no se reflejan en fs.statSync (siempre 0o666); allí basta con
+  // comprobar que la clave existe, porque la protección real la da la carpeta del usuario.
+  if (process.platform === 'win32') {
+    assert.ok(fs.existsSync(path.join(dataDir, 'host.key')), 'la clave del anfitrión se guarda junto a los datos')
+  } else {
+    assert.strictEqual(fs.statSync(path.join(dataDir, 'host.key')).mode & 0o077, 0, 'la clave solo la lee su usuario')
+  }
 
   // El dueño entra con el código que imprime "create" (token cualquiera: ya es miembro)
   owner.servers.join(`psrv1.${hostCode}.${sid}.${'0'.repeat(16)}`)

@@ -1,0 +1,12 @@
+# Avisa y propone actualizaciones cada semana (Electron y las librerías reciben arreglos de seguridad seguido).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

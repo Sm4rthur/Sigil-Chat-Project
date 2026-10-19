@@ -2,7 +2,7 @@
 // Servidores alojados en el PC del creador: unirse, mensajes, roles, moderación, invitaciones y ataques.
 const assert = require('assert')
 const { makeNode, connect, sleep, finish } = require('./helpers')
-const { encodeFrame, T_JSON } = require('../src/frames')
+const { encodeFrame, T_JSON, T_VOICE, VOICE_HEADER } = require('../src/frames')
 const { LIMITS: NET } = require('../src/network')
 
 const watch = (node) => {
@@ -60,6 +60,59 @@ const lastErr = (w) => w.errors[w.errors.length - 1] || ''
   assert.strictEqual(ana.servers.messages(sid, gen)[0].name, 'beto')
   assert.deepStrictEqual(wb.msgs, ['hola grupo', 'bienvenido'])
 
+  // ---------- Canales de voz ----------
+  const voices = { ana: [], beto: [] }
+  ana.on('voice', (v) => voices.ana.push(v))
+  beto.on('voice', (v) => voices.beto.push(v))
+
+  ana.servers.admin(sid, 'channel-add', { name: 'Sala de voz', kind: 'voice' })
+  await sleep(100)
+  const voiceCid = ana.servers.get(sid).channels.find((c) => c.kind === 'voice').id
+  assert.ok(voiceCid, 'se creó el canal de voz')
+
+  // Beto entra: el anfitrión y él mismo lo ven en el canal
+  beto.servers.voiceJoin(sid, voiceCid)
+  await sleep(150)
+  assert.ok((ana.servers.get(sid).voice[voiceCid] || []).some((p) => p.key === beto.code))
+  assert.ok((beto.servers.get(sid).voice[voiceCid] || []).some((p) => p.key === beto.code))
+
+  // Ana entra y oye a Beto; Beto no se oye a sí mismo
+  ana.servers.voiceJoin(sid, voiceCid)
+  await sleep(100)
+  beto.servers.voiceSend(sid, voiceCid, Buffer.from('audio-de-beto'))
+  await sleep(100)
+  assert.ok(voices.ana.some((v) => v.from === beto.code && v.cid === voiceCid), 'el anfitrión oye al miembro')
+  assert.strictEqual(voices.beto.length, 0, 'el miembro no se oye a sí mismo')
+
+  // Ana habla y Beto la oye
+  ana.servers.voiceSend(sid, voiceCid, Buffer.from('audio-de-ana'))
+  await sleep(100)
+  assert.ok(voices.beto.some((v) => v.from === ana.code && v.sid === sid), 'el miembro oye al anfitrión')
+
+  // El silencio se refleja en el estado del canal
+  beto.servers.voiceMute(sid, true)
+  await sleep(100)
+  const inVoice = (ana.servers.get(sid).voice[voiceCid] || []).find((p) => p.key === beto.code)
+  assert.ok(inVoice && inVoice.muted)
+
+  // Audio a un canal de texto: se descarta
+  const beforeBad = voices.ana.length
+  ana.servers.voiceSend(sid, gen, Buffer.from('canal-equivocado'))
+  await sleep(80)
+  assert.strictEqual(voices.ana.length, beforeBad)
+
+  // Un paquete con encabezado falso tampoco entra
+  const fakeHead = Buffer.from(sid + voiceCid + beto.code, 'utf8')
+  assert.strictEqual(fakeHead.length, VOICE_HEADER)
+  ana.servers.onVoice({ key: dana.code }, Buffer.concat([fakeHead, Buffer.from('intruso')]))
+  await sleep(50)
+  assert.strictEqual(voices.ana.length, beforeBad)
+
+  // Salir limpia el canal
+  beto.servers.voiceLeave(sid)
+  await sleep(150)
+  assert.ok(!(ana.servers.get(sid).voice[voiceCid] || []).some((p) => p.key === beto.code))
+
   // ---------- Permisos ----------
   beto.servers.admin(sid, 'channel-add', { name: 'Nuevo' })
   await sleep(100)
@@ -86,7 +139,7 @@ const lastErr = (w) => w.errors[w.errors.length - 1] || ''
   beto.servers.admin(sid, 'channel-add', { name: 'Charla Libre!!' })
   await sleep(100)
   const chans = beto.servers.get(sid).channels
-  assert.deepStrictEqual(chans.map((c) => c.name), ['general', 'charla-libre'])
+  assert.deepStrictEqual(chans.map((c) => c.name), ['general', 'sala-de-voz', 'charla-libre'])
   beto.servers.admin(sid, 'kick', { key: ana.code })
   await sleep(100)
   assert.match(lastErr(wb), /rango/, 'nadie actúa sobre el dueño')

@@ -6,7 +6,7 @@
 const ThemeUI = (() => {
   const KEY = 'privchat-theme'
   const MODES = ['auto', 'light', 'dark', 'gray', 'custom']
-  const DEFAULT_CUSTOM = { bg: '#1b1f24', panel: '#252a31', ink: '#eef1f5', line: '#3a424d', accent: '#4fb89f', image: '', glass: false, opacity: 70 }
+  const DEFAULT_CUSTOM = { bg: '#111216', panel: '#191a21', ink: '#dcdce5', line: '#343540', accent: '#8274d9', image: '', glass: false, opacity: 70 }
   const HEX = /^#[0-9a-f]{6}$/i
   const IMG = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/
   const MAX_IMAGE = 2 * 1024 * 1024
@@ -62,7 +62,7 @@ const ThemeUI = (() => {
     root.style.setProperty('--muted', mix(c.ink, c.bg, 0.6))
     root.style.setProperty('--line', c.line)
     root.style.setProperty('--accent', c.accent)
-    root.style.setProperty('--accent-ink', luminance(c.accent) > 0.45 ? '#111111' : '#ffffff')
+    root.style.setProperty('--accent-ink', contrast(c.accent, '#ffffff') >= contrast(c.accent, '#111216') ? '#ffffff' : '#111216')
     root.style.setProperty('--mine', mix(c.accent, c.panel, 0.28))
     root.style.setProperty('--theirs', mix(c.ink, c.panel, 0.1))
     if (c.image) { root.style.setProperty('--bgimg', 'url("' + c.image + '")'); root.dataset.bgimg = '1' }

@@ -10,7 +10,9 @@ const CHANNELS = new Set([
   'font-consent', 'set-background', 'link-check', 'link-open', 'search', 'privacy-get', 'privacy-set', 'file-send', 'file-download', 'file-get', 'file-save',
   'contact-add', 'contact-remove', 'request-accept', 'request-reject',
   'call-start', 'call-accept', 'call-end', 'set-node-mode', 'set-accept-requests',
-  'keyfile-create', 'keyfile-remove', 'remember-set', 'ask-mic'
+  'notify-get', 'notify-set', 'mute-contact', 'mute-server',
+  'keyfile-create', 'keyfile-remove', 'remember-set', 'ask-mic',
+  'srv-voice-join', 'srv-voice-leave', 'srv-voice-mute'
 ])
 
 contextBridge.exposeInMainWorld('api', {
@@ -19,5 +21,6 @@ contextBridge.exposeInMainWorld('api', {
     return ipcRenderer.invoke(channel, arg)
   },
   sendAudio: (bytes) => ipcRenderer.send('audio-send', bytes),
+  sendVoice: (sid, cid, bytes) => ipcRenderer.send('voice-send', { sid, cid, buf: bytes }),
   onEvent: (callback) => ipcRenderer.on('event', (_e, data) => callback(data))
 })

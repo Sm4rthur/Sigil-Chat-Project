@@ -6,12 +6,15 @@
 // largos máximos, y el lector no hace trabajo repetido aunque lleguen los datos de a 1 byte.
 
 const T_JSON = 0   // chat y control de llamadas (texto JSON)
-const T_AUDIO = 1  // audio de la llamada (PCM 16 bits, 16 kHz, mono)
+const T_AUDIO = 1  // audio de la llamada (Opus; o PCM 16 bits de reserva)
 const T_FILE = 2   // parte de un archivo: [8 bytes id][4 bytes número][datos]
+const T_VOICE = 3  // audio de un canal de voz: [16 sid][8 cid][64 hablante][Opus]
 
 const MAX_FRAME = 64 * 1024       // tope duro del lector
 const MAX_JSON_FRAME = 20 * 1024  // 4000 caracteres ocupan como máximo ~16 KB
-const MAX_AUDIO_FRAME = 8 * 1024  // nuestro emisor envía ~2 KB por paquete
+const MAX_AUDIO_FRAME = 8 * 1024  // paquete de audio de una llamada
+const MAX_VOICE_FRAME = 4 * 1024  // paquete de audio de un canal de voz
+const VOICE_HEADER = 16 + 8 + 64  // sid + cid + clave del hablante
 
 function encodeFrame(type, payload) {
   const header = Buffer.alloc(5)
@@ -85,4 +88,8 @@ class FrameParser {
   }
 }
 
-module.exports = { T_JSON, T_AUDIO, T_FILE, MAX_FRAME, MAX_JSON_FRAME, MAX_AUDIO_FRAME, encodeFrame, FrameParser }
+module.exports = {
+  T_JSON, T_AUDIO, T_FILE, T_VOICE,
+  MAX_FRAME, MAX_JSON_FRAME, MAX_AUDIO_FRAME, MAX_VOICE_FRAME, VOICE_HEADER,
+  encodeFrame, FrameParser
+}

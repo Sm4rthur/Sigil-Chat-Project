@@ -9,7 +9,7 @@
 | Amenaza | Qué hace la app |
 |---|---|
 | Un desconocido que conoce tu código intenta escribirte o llamarte | Solo los **contactos** pueden escribir o llamar. Los desconocidos quedan como "solicitud" que tú aceptas o rechazas (y bloqueas). Opción en Ajustes para **no aceptar solicitudes** de nadie nuevo. |
-| Alguien intenta colapsar la app con paquetes enormes o mal formados | Todo dato de red se valida. Paquetes >20 KB (chat) u >8 KB (audio) se rechazan, el JSON se verifica, y ante datos inválidos la conexión se corta. |
+| Alguien intenta colapsar la app con paquetes enormes o mal formados | Todo dato de red se valida. Paquetes >20 KB (chat), >8 KB (audio de llamada) o >4 KB (voz de servidor) se rechazan, el JSON se verifica, y ante datos inválidos la conexión se corta. |
 | Inundación de mensajes, solicitudes, llamadas o conexiones | Límites por conexión (velocidad), tope de conexiones de desconocidos (8) y de solicitudes guardadas (20), una conexión que no se presenta en 10 s se corta, invitaciones de llamada espaciadas, avisos del sistema limitados. |
 | Suplantación de nombre ("Mamá", "Soporte") | El nombre lo elige quien escribe, así que se avisa en pantalla; se eliminan caracteres invisibles y de inversión de texto; contactos con el mismo nombre se distinguen con parte de su código; al aceptar, el nombre queda fijo. |
 | Alguien intercepta tus mensajes en internet | La conexión es cifrada de extremo a extremo y autenticada con la clave pública del contacto (protocolo Noise de Hyperswarm). |
@@ -63,9 +63,22 @@ Riesgos propios:
 - **Si se filtra la clave de firma** (`secrets.json`) alguien podría emitir certificados falsos; habría que publicar una versión nueva con otra clave. No hay revocación individual.
 - **Los nombres no se pueden cambiar ni recuperar.** Sin el registro configurado, los nombres pueden repetirse.
 
-## Llamadas y chat
+## Llamadas y voz
 
 Cada lado anota las llamadas en su propio chat (no viaja información extra por la red). Los registros no generan avisos del sistema salvo las llamadas perdidas.
+
+El audio (llamadas y canales de voz) viaja por la **misma conexión cifrada** entre las dos computadoras; no hay servidores de terceros. Se comprime con **Opus** (WebCodecs de Chromium) en paquetes de 20 ms; si el equipo no trae WebCodecs con Opus, se usa un PCM de 16 bits de reserva. El micrófono se enciende solo al entrar en una llamada o en un canal de voz, y se apaga al salir.
+
+En los **canales de voz de un servidor** el audio lo reparte el anfitrión (una "SFU" sencilla): cada persona envía su voz al anfitrión y él la reenvía al resto del canal. Esto tiene una consecuencia honesta que conviene saber:
+
+| Amenaza | Resultado |
+|---|---|
+| El anfitrión oye el audio del canal de voz | **Sí.** Debe oírlo para repartirlo; el audio del canal de voz no usa la clave de grupo del texto. |
+| Un miembro inventa quién habla | No: el anfitrión sobrescribe el hablante con la identidad real de la conexión. |
+| Alguien que no está en el canal envía o recibe voz | Se descarta: se comprueba que sea miembro y que esté en ese canal. |
+| Una llamada privada la oye el anfitrión de un servidor | No aplica: las llamadas son directas entre dos personas, sin pasar por ningún servidor. |
+
+*Pendiente (Fase C):* cifrar el audio del canal de voz con la clave de grupo para que el anfitrión (o un repetidor) tampoco pueda oírlo.
 
 ## Cifrado de extremo a extremo en servidores (desde la 0.5)
 
@@ -151,7 +164,7 @@ en el anfitrión sin pantalla, quien robe el disco con la clave puede leer los d
 - **No hay federación ni repetidores comunitarios:** si el anfitrión está apagado, el servidor se detiene. Un anfitrión 24/7 (Raspberry Pi) lo mantiene en línea y, en servidores cifrados, **no puede leer** lo que reparte.
 - **No hay números de seguridad** para verificar claves entre miembros.
 
-## Revisión de seguridad de la versión 0.5
+## Revisión de seguridad de las versiones 0.5 y 0.6
 
 **Qué se hizo:** pruebas dirigidas de ataque (anfitrión malicioso, miembro sin permiso, desconocido, perfiles y archivos hostiles, claves y firmas falsas); un *fuzzer* que envía decenas de miles de mensajes aleatorios y mal formados desde cada tipo de remitente (contacto, miembro, desconocido y anfitrión) con 13 semillas distintas; y una revisión estática (la pantalla no usa APIs peligrosas ni hace conexiones; el programa principal no usa `eval` ni lanza procesos).
 
@@ -160,6 +173,8 @@ en el anfitrión sin pantalla, quien robe el disco con la clave puede leer los d
 - (0.4) Una actualización de perfil enviada poco después de otra se ignoraba por un límite mal planteado; los miembros de un servidor ocupaban el cupo de conexiones de desconocidos.
 
 **Lo que NO se pudo hacer:** auditoría externa; pruebas con la red real (solo simulada); auditoría de dependencias (`npm audit` necesita internet y corre al compilar en GitHub); probar la ventana real de Electron ni el instalador.
+
+**Añadido en 0.6:** pruebas de los canales de voz (audio enviado a un canal de texto, encabezado de hablante falso, miembro que no está en el canal) y las mismas baterías de la 0.5, todas en verde. El audio viaja por la conexión cifrada existente; el anfitrión del servidor **sí oye** el canal de voz porque debe repartirlo (ver "Llamadas y voz").
 
 ## Riesgos que siguen existiendo
 

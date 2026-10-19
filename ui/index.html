@@ -4,241 +4,418 @@
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PrivChat</title>
+  <title>Sigil Chat</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
+  <a class="skip-link" href="#messages">Saltar a la conversación</a>
+
   <!-- PANTALLA DE CARGA -->
-  <section id="screen-loading" class="screen center">
-    <div class="card loading">
-      <img class="load-icon" src="../assets/icon.png" alt="">
-      <h1>PrivChat</h1>
+  <section id="screen-loading" class="screen center auth-screen">
+    <div class="loading-panel">
+      <span class="brand-mark brand-mark-lg" data-icon="brand" aria-hidden="true"></span>
+      <h1>Sigil Chat</h1>
+      <p class="auth-kicker">Un refugio digital</p>
       <div class="spinner" role="progressbar" aria-label="Cargando"></div>
       <p id="loading-text" class="muted">Preparando la aplicación…</p>
     </div>
   </section>
 
   <!-- INICIAR SESIÓN -->
-  <section id="screen-login" class="screen center" hidden>
-    <form id="login-form" class="card">
-      <h1>PrivChat</h1>
-      <p class="muted">Chat y llamadas directas entre computadores, sin servidor central.</p>
-      <label>Usuario o Gmail
-        <input id="login-user" autocomplete="username" required>
-      </label>
-      <label>Contraseña
-        <input id="login-pass" type="password" autocomplete="current-password" required>
-      </label>
-      <label class="check"><input id="login-show" type="checkbox"> Mostrar contraseña</label>
-      <label class="check"><input id="login-remember" type="checkbox"> Recordarme en este dispositivo</label>
-      <button class="primary" type="submit">Entrar</button>
-      <button id="btn-login-key" type="button">Entrar con clave de acceso (pendrive)</button>
-      <p id="login-error" class="error" role="alert"></p>
-      <p class="muted">¿No tienes cuenta? <a href="#" id="to-signup">Crear cuenta</a> · <a href="#" id="to-theme">Apariencia</a></p>
-    </form>
+  <section id="screen-login" class="screen center auth-screen" hidden>
+    <div class="auth-shell">
+      <aside class="auth-brand" aria-label="Sigil Chat">
+        <span class="brand-mark brand-mark-xl" data-icon="brand" aria-hidden="true"></span>
+        <p class="eyebrow">Dark Sanctuary</p>
+        <h1>Sigil Chat</h1>
+        <p class="auth-tagline">Conversaciones directas, sin servidor central y con la puerta cerrada.</p>
+        <ul class="auth-facts plain">
+          <li><span data-icon="shield" aria-hidden="true"></span><span>Tu cuenta se guarda cifrada en este equipo.</span></li>
+          <li><span data-icon="wifi-off" aria-hidden="true"></span><span>Sin analítica, telemetría ni cuentas en la nube.</span></li>
+          <li><span data-icon="lock" aria-hidden="true"></span><span>Las conexiones directas viajan cifradas.</span></li>
+        </ul>
+      </aside>
+      <form id="login-form" class="card auth-card" aria-labelledby="login-title">
+        <p class="eyebrow">Acceso local</p>
+        <h2 id="login-title">Iniciar sesión</h2>
+        <p class="muted auth-intro">Tu identidad vive solo en este computador.</p>
+        <label class="field">
+          <span>Usuario o Gmail</span>
+          <input id="login-user" autocomplete="username" required>
+        </label>
+        <label class="field">
+          <span>Contraseña</span>
+          <input id="login-pass" type="password" autocomplete="current-password" required>
+        </label>
+        <label class="check"><input id="login-show" type="checkbox"> Mostrar contraseña</label>
+        <label class="check"><input id="login-remember" type="checkbox"> Recordarme en este dispositivo</label>
+        <button class="primary btn-block" type="submit">Entrar</button>
+        <button id="btn-login-key" class="ghost btn-block" type="button"><span data-icon="key" aria-hidden="true"></span> Entrar con clave de acceso</button>
+        <p id="login-error" class="error" role="alert"></p>
+        <p class="auth-links muted">¿No tienes cuenta? <a href="#" id="to-signup">Crear cuenta</a> · <a href="#" id="to-theme">Apariencia</a></p>
+      </form>
+    </div>
   </section>
 
   <!-- CREAR CUENTA -->
-  <section id="screen-signup" class="screen center" hidden>
-    <form id="signup-form" class="card">
-      <h1>Crear cuenta</h1>
-      <p class="muted">La cuenta se guarda solo en este computador, cifrada con tu contraseña.</p>
-      <label>Gmail
+  <section id="screen-signup" class="screen center auth-screen" hidden>
+    <form id="signup-form" class="card auth-card auth-card-solo" aria-labelledby="signup-title">
+      <span class="brand-mark" data-icon="brand" aria-hidden="true"></span>
+      <p class="eyebrow">Nueva identidad</p>
+      <h2 id="signup-title">Crear cuenta</h2>
+      <p class="muted auth-intro">La cuenta se guarda solo en este computador, cifrada con tu contraseña.</p>
+      <label class="field">
+        <span>Gmail</span>
         <input id="signup-email" type="email" autocomplete="email" placeholder="nombre@gmail.com" required>
       </label>
-      <label>Nombre de usuario
+      <label class="field">
+        <span>Nombre de usuario</span>
         <input id="signup-user" autocomplete="username" required>
       </label>
-      <label>Contraseña (mínimo 10 caracteres; mejor una frase larga)
-        <input id="signup-pass" type="password" autocomplete="new-password" required>
+      <label class="field">
+        <span>Contraseña</span>
+        <input id="signup-pass" type="password" autocomplete="new-password" aria-describedby="signup-pass-hint" required>
+        <small id="signup-pass-hint" class="hint">Mínimo 10 caracteres; mejor una frase larga.</small>
       </label>
-      <label>Repite la contraseña
+      <label class="field">
+        <span>Repite la contraseña</span>
         <input id="signup-pass2" type="password" autocomplete="new-password" required>
       </label>
       <label class="check"><input id="signup-show" type="checkbox"> Mostrar contraseñas</label>
-      <button id="btn-signup" class="primary" type="submit">Crear cuenta</button>
+      <button id="btn-signup" class="primary btn-block" type="submit">Crear cuenta</button>
       <p id="signup-error" class="error" role="alert"></p>
-      <p class="muted">¿Ya tienes cuenta? <a href="#" id="to-login">Iniciar sesión</a></p>
+      <p class="auth-links muted">¿Ya tienes cuenta? <a href="#" id="to-login">Iniciar sesión</a></p>
     </form>
   </section>
 
   <!-- OFRECER CLAVE DE ACCESO (después de crear la cuenta) -->
-  <section id="screen-keyfile" class="screen center" hidden>
-    <div class="card">
-      <h1>Clave de acceso en pendrive</h1>
-      <p>Opcional. Se guarda un archivo en tu pendrive y, al conectarlo, la app inicia sesión sola.</p>
+  <section id="screen-keyfile" class="screen center auth-screen" hidden>
+    <div class="card auth-card auth-card-solo">
+      <span class="brand-mark" data-icon="key" aria-hidden="true"></span>
+      <p class="eyebrow">Opcional</p>
+      <h2>Clave de acceso en pendrive</h2>
+      <p>Se guarda un archivo en tu pendrive y, al conectarlo, la app inicia sesión sola.</p>
       <p class="muted">Quien tenga ese pendrive podrá entrar a tu cuenta: guárdalo como una llave. Puedes crearla o quitarla después en Ajustes.</p>
-      <button id="btn-key-create" class="primary" type="button">Crear clave de acceso</button>
-      <button id="btn-key-skip" type="button">Ahora no</button>
+      <div class="button-row">
+        <button id="btn-key-create" class="primary" type="button">Crear clave de acceso</button>
+        <button id="btn-key-skip" class="ghost" type="button">Ahora no</button>
+      </div>
       <p id="key-result" class="ok" role="status"></p>
-      <button id="btn-key-next" type="button" hidden>Continuar</button>
+      <button id="btn-key-next" class="ghost btn-block" type="button" hidden>Continuar</button>
     </div>
   </section>
 
   <!-- PERMISOS -->
-  <section id="screen-permissions" class="screen center" hidden>
-    <div class="card">
-      <h1>Permisos</h1>
+  <section id="screen-permissions" class="screen center auth-screen" hidden>
+    <div class="card auth-card auth-card-solo">
+      <span class="brand-mark" data-icon="shield" aria-hidden="true"></span>
+      <p class="eyebrow">Primer inicio</p>
+      <h2>Permisos</h2>
       <p class="muted">Esto es lo único que la app necesita para funcionar.</p>
-      <ul class="plain">
-        <li><strong>Micrófono</strong>: para las llamadas. <button id="btn-mic" type="button">Permitir micrófono</button> <span id="mic-status" class="muted"></span></li>
-        <li><strong>Red</strong>: para conectarte con tus contactos. Si el sistema pregunta por el firewall, acepta el acceso en redes privadas.</li>
-        <li><strong>Notificaciones</strong>: avisos de mensajes y llamadas. El sistema puede preguntarte la primera vez.</li>
+      <ul class="permission-list">
+        <li>
+          <span class="permission-icon" data-icon="phone" aria-hidden="true"></span>
+          <div><strong>Micrófono</strong><p>Para las llamadas. <button id="btn-mic" class="ghost compact" type="button">Permitir micrófono</button> <span id="mic-status" class="muted small"></span></p></div>
+        </li>
+        <li>
+          <span class="permission-icon" data-icon="wifi" aria-hidden="true"></span>
+          <div><strong>Red</strong><p>Para conectarte con tus contactos. Si el sistema pregunta por el firewall, acepta el acceso en redes privadas.</p></div>
+        </li>
+        <li>
+          <span class="permission-icon" data-icon="bell" aria-hidden="true"></span>
+          <div><strong>Notificaciones</strong><p>Avisos de mensajes y llamadas. El sistema puede preguntarte la primera vez.</p></div>
+        </li>
       </ul>
-      <p class="muted">La app no usa cámara ni accede a tus archivos, salvo el pendrive si activas la clave de acceso.</p>
-      <button id="btn-perm-next" class="primary" type="button">Continuar</button>
+      <p class="hint">La app no usa cámara ni accede a tus archivos, salvo el pendrive si activas la clave de acceso.</p>
+      <button id="btn-perm-next" class="primary btn-block" type="button">Continuar</button>
     </div>
   </section>
 
   <!-- APP PRINCIPAL -->
-  <section id="screen-main" class="screen" hidden>
-    <aside id="sidebar">
-      <div class="me">
-        <div class="row">
-          <span id="me-avatar" class="clickable" role="button" tabindex="0" title="Ver y editar mi perfil"></span>
-          <div>
-            <strong id="me-name"></strong>
-            <div id="me-verified" class="small verified" hidden>✓ Nombre registrado</div>
+  <section id="screen-main" class="screen app-shell" hidden>
+    <nav id="nav-rail" aria-label="Navegación principal">
+      <div class="rail-brand" aria-label="Sigil Chat" title="Sigil Chat">
+        <span data-icon="brand" aria-hidden="true"></span>
+      </div>
+      <button id="btn-nav-chats" class="rail-item is-active" type="button" aria-label="Mensajes" aria-current="page" data-tip="Mensajes">
+        <span data-icon="message-square" aria-hidden="true"></span>
+      </button>
+      <button id="btn-nav-contacts" class="rail-item" type="button" aria-label="Contactos" data-tip="Contactos">
+        <span data-icon="users" aria-hidden="true"></span>
+        <span id="contacts-badge" class="rail-badge" hidden></span>
+      </button>
+      <button id="btn-nav-servers" class="rail-item" type="button" aria-label="Servidores" data-tip="Servidores">
+        <span data-icon="server" aria-hidden="true"></span>
+      </button>
+      <div class="rail-sep" role="separator"></div>
+      <button id="btn-search" class="rail-item" type="button" aria-label="Buscar mensajes" data-tip="Buscar mensajes">
+        <span data-icon="search" aria-hidden="true"></span>
+      </button>
+      <button id="btn-settings" class="rail-item" type="button" aria-label="Ajustes" data-tip="Ajustes">
+        <span data-icon="settings" aria-hidden="true"></span>
+      </button>
+    </nav>
+
+    <aside id="sidebar" aria-label="Panel de navegación">
+      <header class="panel-head">
+        <h1 id="panel-title">Mensajes</h1>
+        <button id="btn-panel-close" class="icon-btn compact" type="button" aria-label="Cerrar panel">
+          <span data-icon="x" aria-hidden="true"></span>
+        </button>
+      </header>
+
+      <div id="panel-chats" class="panel-view">
+        <section class="panel-section">
+          <div class="section-head">
+            <h2>Contactos</h2>
+            <span id="contact-count" class="count" aria-live="polite"></span>
           </div>
-        </div>
-        <div class="small muted">Tu código (compártelo con tus amigos)</div>
-        <code id="me-code"></code>
-        <div class="row">
-          <button id="btn-copy" type="button">Copiar código</button>
-          <button id="btn-settings" type="button">Ajustes</button>
-        </div>
-        <div id="node-status" class="small muted"></div>
+          <ul id="contacts" class="plain nav-list"></ul>
+        </section>
+
+        <details id="add-contact" class="add-contact">
+          <summary><span data-icon="user-plus" aria-hidden="true"></span> Añadir contacto</summary>
+          <form id="add-form">
+            <label class="field compact-field"><span>Código del contacto</span><input id="add-code" autocomplete="off" required></label>
+            <label class="field compact-field"><span>Nombre (opcional)</span><input id="add-name" autocomplete="off"></label>
+            <button class="ghost btn-block" type="submit">Añadir contacto</button>
+            <p id="add-error" class="error small" role="alert"></p>
+          </form>
+        </details>
       </div>
 
-      <div id="requests-box" hidden>
-        <h2>Solicitudes</h2>
-        <p class="small muted">El nombre lo escribe quien te contacta y no prueba que sea quien dice ser. Acepta solo si reconoces su código por otro medio.</p>
-        <ul id="requests" class="plain"></ul>
+      <div id="panel-servers" class="panel-view" hidden>
+        <section class="panel-section">
+          <div class="section-head"><h2>Tus servidores</h2></div>
+          <ul id="servers" class="plain nav-list"></ul>
+          <div class="panel-actions">
+            <button id="btn-srv-create" class="ghost" type="button"><span data-icon="plus" aria-hidden="true"></span> Crear</button>
+            <button id="btn-srv-join" class="ghost" type="button"><span data-icon="key" aria-hidden="true"></span> Unirme</button>
+          </div>
+        </section>
+        <p class="hint">Los servidores viven en el computador de quien los crea. Tú eliges dónde conversar.</p>
       </div>
-
-      <h2>Contactos</h2>
-      <ul id="contacts" class="plain"></ul>
-
-      <button id="btn-search" type="button">🔍 Buscar mensajes</button>
-      <h2>Servidores</h2>
-      <ul id="servers" class="plain"></ul>
-      <div class="row">
-        <button id="btn-srv-create" type="button">Crear servidor</button>
-        <button id="btn-srv-join" type="button">Unirme</button>
-      </div>
-
-      <form id="add-form">
-        <input id="add-code" placeholder="Código del contacto" autocomplete="off" required>
-        <input id="add-name" placeholder="Nombre (opcional)" autocomplete="off">
-        <button type="submit">Añadir contacto</button>
-        <p id="add-error" class="error small" role="alert"></p>
-      </form>
     </aside>
 
-    <main id="chat">
-      <header id="chat-header">
+    <div id="panel-scrim" class="panel-scrim" hidden></div>
+
+    <!-- Tarjeta de perfil: siempre visible abajo a la izquierda, también cuando el panel está cerrado. -->
+    <footer class="me-card" aria-label="Tu identidad">
+      <button id="me-card-open" class="me-card-top" type="button" title="Ver y editar mi perfil">
+        <span id="me-avatar-card" class="avatar me-avatar-card"></span>
+        <span class="me-copy">
+          <strong id="me-name"></strong>
+          <span id="me-verified" class="small verified" hidden><span data-icon="check" aria-hidden="true"></span> Nombre registrado</span>
+        </span>
+        <span class="presence online" title="Identidad local activa" aria-label="Identidad local activa"></span>
+      </button>
+      <div class="identity-row">
+        <code id="me-code"></code>
+        <button id="btn-copy" class="icon-btn compact" type="button" aria-label="Copiar código" title="Copiar código">
+          <span data-icon="copy" aria-hidden="true"></span>
+        </button>
+      </div>
+      <div id="node-status" class="node-status small" role="status"></div>
+    </footer>
+
+    <main id="chat" class="content-pane" aria-label="Conversación">
+      <header id="chat-header" class="pane-head">
         <span id="chat-avatar"></span>
-        <span id="chat-title">Elige un contacto para empezar</span>
+        <div class="pane-title">
+          <h1 id="chat-title">Elige una conversación</h1>
+          <span id="chat-sub" class="pane-sub">Tus mensajes se guardan cifrados en este equipo.</span>
+        </div>
         <span class="spacer"></span>
-        <button id="btn-profile" type="button" hidden>Ver perfil</button>
-        <button id="btn-call" type="button" hidden>Llamar</button>
-        <button id="btn-remove" type="button" hidden>Eliminar contacto</button>
+        <button id="btn-profile" class="icon-btn" type="button" aria-label="Ver perfil" title="Ver perfil" hidden>
+          <span data-icon="user" aria-hidden="true"></span>
+        </button>
+        <button id="btn-call" class="icon-btn" type="button" aria-label="Llamar" title="Llamar" hidden>
+          <span data-icon="phone" aria-hidden="true"></span>
+        </button>
+        <button id="btn-remove" class="icon-btn danger-icon" type="button" aria-label="Eliminar contacto" title="Eliminar contacto" hidden>
+          <span data-icon="trash" aria-hidden="true"></span>
+        </button>
       </header>
-      <div id="messages"></div>
-      <form id="send-form" hidden>
-        <button id="btn-attach" type="button" title="Enviar un archivo (máximo 10 MB)">📎</button>
-        <input id="send-text" placeholder="Escribe un mensaje" autocomplete="off" maxlength="4000">
-        <button class="primary" type="submit">Enviar</button>
+
+      <div id="chat-empty" class="empty-state">
+        <span class="empty-mark" data-icon="brand" aria-hidden="true"></span>
+        <h2>Tu refugio está listo</h2>
+        <p>Elige un contacto en el panel o abre uno de tus servidores para empezar a conversar.</p>
+        <p class="hint">Los chats se guardan cifrados en este equipo.</p>
+      </div>
+
+      <div id="messages" class="messages" role="log" aria-live="polite" aria-relevant="additions text"></div>
+
+      <form id="send-form" class="composer" hidden>
+        <button id="btn-attach" class="icon-btn" type="button" title="Enviar un archivo (máximo 10 MB)" aria-label="Adjuntar archivo">
+          <span data-icon="paperclip" aria-hidden="true"></span>
+        </button>
+        <input id="send-text" placeholder="Escribe un mensaje" autocomplete="off" maxlength="4000" aria-label="Escribe un mensaje">
+        <button class="primary icon-btn send-btn" type="submit" aria-label="Enviar mensaje" title="Enviar mensaje">
+          <span data-icon="send" aria-hidden="true"></span>
+        </button>
       </form>
-      <p id="chat-hint" class="small muted" hidden>⏳ = se entregará cuando tu contacto esté conectado. ✓ = entregado.</p>
+      <p id="chat-hint" class="composer-hint small muted" hidden><span data-icon="clock" aria-hidden="true"></span> Se entregará cuando tu contacto esté conectado. <span data-icon="check" aria-hidden="true"></span> Entregado.</p>
     </main>
 
-      <!-- SERVIDOR (alojado en el PC de quien lo creó) -->
-    <main id="server-view" hidden>
-      <header class="srv-head">
-        <strong id="srv-name"></strong>
-        <span id="srv-role" class="small muted"></span>
-        <span id="srv-host" class="small"></span>
+    <!-- SERVIDOR (alojado en el PC de quien lo creó) -->
+    <main id="server-view" class="content-pane" hidden>
+      <header class="pane-head srv-head">
+        <span class="srv-mark" data-icon="server" aria-hidden="true"></span>
+        <div class="pane-title">
+          <h1 id="srv-name"></h1>
+          <span class="pane-sub"><span id="srv-role"></span><span class="meta-sep" aria-hidden="true">·</span><span id="srv-host"></span></span>
+        </div>
         <span class="spacer"></span>
-        <button id="srv-invite" type="button" hidden>Invitar</button>
-        <button id="srv-rename" type="button" hidden>Renombrar</button>
-        <button id="srv-leave" type="button">Salir</button>
+        <button id="srv-invite" class="ghost compact" type="button" hidden>Invitar</button>
+        <button id="srv-settings" class="icon-btn" type="button" aria-label="Configuración del servidor" title="Configuración del servidor">
+          <span data-icon="settings" aria-hidden="true"></span>
+        </button>
+        <button id="srv-leave" class="ghost compact danger-text" type="button">Salir</button>
       </header>
       <div class="srv-body">
-        <div class="srv-col">
-          <p id="srv-note" class="small srv-note" hidden></p>
+        <aside class="channels-pane" aria-label="Canales">
+          <div class="channels-head">
+            <h2>Canales</h2>
+          </div>
           <div id="srv-channels" class="srv-channels"></div>
-          <div id="srv-messages"></div>
-          <form id="srv-form" class="sendform">
-            <input id="srv-text" autocomplete="off" maxlength="2000" placeholder="Escribe en el canal">
-            <button class="primary" type="submit">Enviar</button>
+        </aside>
+        <div class="srv-col">
+          <div class="channel-head">
+            <h2 id="srv-channel-title"># general</h2>
+            <span id="srv-note" class="srv-note small" hidden></span>
+          </div>
+          <section id="srv-voice" class="srv-voice" aria-label="Canal de voz" hidden>
+            <div class="srv-voice-head">
+              <span class="srv-voice-mark" data-icon="volume-2" aria-hidden="true"></span>
+              <div class="pane-title">
+                <h3 id="srv-voice-title">Canal de voz</h3>
+                <span id="srv-voice-sub" class="pane-sub small muted"></span>
+              </div>
+              <span class="spacer"></span>
+              <button id="srv-voice-join" class="primary compact" type="button">Unirse</button>
+              <button id="srv-voice-leave" class="ghost compact danger-text" type="button" hidden>Salir</button>
+              <button id="srv-voice-mute" class="icon-btn" type="button" aria-pressed="false" aria-label="Silenciar micrófono" title="Silenciar micrófono" hidden>
+                <span data-icon="mic" aria-hidden="true"></span>
+              </button>
+            </div>
+            <ul id="srv-voice-members" class="plain srv-voice-members"></ul>
+            <p class="hint">Solo quienes están en el canal se oyen. El audio va cifrado de extremo a extremo, comprimido con Opus, y pasa por el PC del anfitrión.</p>
+          </section>
+          <div id="srv-messages" class="messages" role="log" aria-live="polite" aria-relevant="additions text"></div>
+          <form id="srv-form" class="composer">
+            <input id="srv-text" autocomplete="off" maxlength="2000" placeholder="Escribe en el canal" aria-label="Escribe en el canal">
+            <button class="primary icon-btn send-btn" type="submit" aria-label="Enviar mensaje" title="Enviar mensaje">
+              <span data-icon="send" aria-hidden="true"></span>
+            </button>
           </form>
         </div>
-        <aside id="srv-side">
-          <h3>Miembros</h3>
+        <aside id="srv-side" class="members-pane" aria-label="Miembros">
+          <div class="members-head">
+            <h2>Miembros</h2>
+            <span class="count" id="srv-member-count"></span>
+          </div>
           <ul id="srv-members" class="plain"></ul>
-          <div id="srv-bans-box" hidden>
-            <h3>Baneados</h3>
-            <ul id="srv-bans" class="plain small"></ul>
-          </div>
-          <div id="srv-audit-box" hidden>
-            <h3>Registro</h3>
-            <ul id="srv-audit" class="plain small"></ul>
-          </div>
-          <p class="small muted">El anfitrión puede leer todo lo que se escribe aquí.</p>
+          <p id="srv-privacy-note" class="hint">El anfitrión ve metadatos (quién escribe y cuándo). En servidores cifrados no puede leer el contenido.</p>
         </aside>
       </div>
     </main>
-  </section>
 
-  <!-- PREGUNTAR UN DATO -->
-  <dialog id="ask-dialog">
-    <h2 id="ask-title"></h2>
+    <!-- CONTACTOS -->
+    <main id="contacts-home" class="content-pane" hidden aria-label="Contactos">
+      <header class="pane-head">
+        <span class="pane-mark" data-icon="users" aria-hidden="true"></span>
+        <div class="pane-title">
+          <h1>Contactos</h1>
+          <span class="pane-sub">Tus amigos en este equipo</span>
+        </div>
+        <span class="spacer"></span>
+        <button id="btn-contacts-add" class="ghost compact" type="button"><span data-icon="user-plus" aria-hidden="true"></span> Añadir</button>
+      </header>
+      <div class="home-body">
+        <div id="requests-box" class="requests-box" hidden>
+          <h2>Solicitudes de amistad</h2>
+          <p class="small muted">El nombre lo escribe quien te contacta y no prueba su identidad. Acepta solo si reconoces su código.</p>
+          <ul id="requests" class="plain"></ul>
+        </div>
+        <ul id="friends-list" class="plain friends-list"></ul>
+      </div>
+    </main>
+
+    <!-- SERVIDORES -->
+    <main id="servers-home" class="content-pane" hidden aria-label="Servidores">
+      <header class="pane-head">
+        <span class="pane-mark" data-icon="server" aria-hidden="true"></span>
+        <div class="pane-title">
+          <h1>Tus servidores</h1>
+          <span class="pane-sub">Viven en el computador de quien los crea</span>
+        </div>
+        <span class="spacer"></span>
+        <button id="btn-srv-create-home" class="ghost compact" type="button"><span data-icon="plus" aria-hidden="true"></span> Crear</button>
+        <button id="btn-srv-join-home" class="ghost compact" type="button"><span data-icon="key" aria-hidden="true"></span> Unirme</button>
+      </header>
+      <div class="home-body">
+        <ul id="servers-grid" class="plain servers-grid"></ul>
+      </div>
+    </main>
+  </section>
+  <dialog id="ask-dialog" class="dialog">
+    <div class="dialog-head">
+      <h2 id="ask-title"></h2>
+    </div>
     <p id="ask-text" class="small muted"></p>
-    <input id="ask-input" autocomplete="off">
-    <div class="row ask-row"><button id="ask-cancel" type="button">Cancelar</button><span class="spacer"></span><button id="ask-ok" class="primary" type="button">Aceptar</button></div>
+    <label class="field"><span>Dato</span><input id="ask-input" autocomplete="off"></label>
+    <div class="dialog-actions">
+      <button id="ask-cancel" class="ghost" type="button">Cancelar</button>
+      <span class="spacer"></span>
+      <button id="ask-ok" class="primary" type="button">Aceptar</button>
+    </div>
   </dialog>
 
   <!-- PERFIL (ver) -->
-  <dialog id="profile-dialog">
-    <div class="row">
+  <dialog id="profile-dialog" class="dialog dialog-wide">
+    <div class="dialog-head profile-head">
       <span id="pv-avatar"></span>
-      <div>
+      <div class="pane-title">
         <h2 id="pv-name"></h2>
         <div id="pv-status" class="muted"></div>
       </div>
       <span class="spacer"></span>
-      <button id="pv-edit" type="button" hidden>Editar mi perfil</button>
-      <button id="pv-close" type="button">Cerrar</button>
+      <button id="pv-edit" class="primary compact" type="button" hidden>Editar mi perfil</button>
+      <button id="pv-close" class="icon-btn" type="button" aria-label="Cerrar perfil" title="Cerrar">
+        <span data-icon="x" aria-hidden="true"></span>
+      </button>
     </div>
     <div id="pv-fonts" class="notice" hidden>
       <span id="pv-fonts-text"></span>
-      <button id="pv-fonts-yes" type="button" class="primary">Descargar y usar</button>
-      <button id="pv-fonts-no" type="button">No, usar fuente normal</button>
+      <div class="button-row">
+        <button id="pv-fonts-yes" type="button" class="primary compact">Descargar y usar</button>
+        <button id="pv-fonts-no" type="button" class="ghost compact">No, usar fuente normal</button>
+      </div>
     </div>
     <p id="pv-empty" class="muted" hidden></p>
     <div id="pv-page" class="page-wrap"></div>
   </dialog>
 
   <!-- PERFIL (editor de mi página personal) -->
-  <section id="editor" hidden>
+  <section id="editor" class="editor-overlay" role="dialog" aria-modal="true" aria-label="Editar mi perfil" hidden>
     <div class="ed-bar">
       <strong>Editar mi perfil</strong>
       <label class="inline">Estado <input id="ed-status" maxlength="80" placeholder="Una frase corta"></label>
-      <button id="ed-avatar-btn" type="button">Foto de perfil</button>
-      <button id="ed-avatar-adjust" type="button">Ajustar foto</button>
-      <button id="ed-fonts-btn" type="button">Mis fuentes</button>
-      <button id="ed-add-text" type="button">+ Texto</button>
-      <button id="ed-add-image" type="button">+ Imagen</button>
+      <button id="ed-avatar-btn" class="ghost compact" type="button">Foto de perfil</button>
+      <button id="ed-avatar-adjust" class="ghost compact" type="button">Ajustar foto</button>
+      <button id="ed-fonts-btn" class="ghost compact" type="button">Mis fuentes</button>
+      <button id="ed-add-text" class="ghost compact" type="button"><span data-icon="plus" aria-hidden="true"></span> Texto</button>
+      <button id="ed-add-image" class="ghost compact" type="button"><span data-icon="image" aria-hidden="true"></span> Imagen</button>
       <span class="spacer"></span>
-      <button id="ed-cancel" type="button">Cancelar</button>
+      <button id="ed-cancel" class="ghost" type="button">Cancelar</button>
       <button id="ed-save" class="primary" type="button">Guardar</button>
     </div>
     <div class="ed-bar">
       <label class="inline">Fondo <input id="ed-bg-color" type="color"></label>
-      <button id="ed-bg-image" type="button">Imagen de fondo</button>
-      <button id="ed-bg-clear" type="button">Quitar imagen</button>
+      <button id="ed-bg-image" class="ghost compact" type="button">Imagen de fondo</button>
+      <button id="ed-bg-clear" class="ghost compact" type="button">Quitar imagen</button>
       <label class="inline">Ajuste
         <select id="ed-bg-fit"><option value="cover">Cubrir</option><option value="contain">Contener</option></select>
       </label>
@@ -254,144 +431,380 @@
   </section>
 
   <!-- RECORTE DE LA FOTO DE PERFIL -->
-  <dialog id="crop-dialog">
-    <h2>Ajusta tu foto de perfil</h2>
+  <dialog id="crop-dialog" class="dialog">
+    <div class="dialog-head"><h2>Ajusta tu foto de perfil</h2></div>
     <p class="small muted">Arrastra la imagen para moverla y usa el control para acercarla. Así se verá en el círculo (también si es animada).</p>
-    <div class="row crop-row"><span id="crop-preview" class="avatar crop clickable"></span></div>
-    <label>Acercar <input id="crop-zoom" type="range" min="1" max="4" step="0.05" value="1"></label>
-    <div class="row"><button id="crop-cancel" type="button">Cancelar</button><span class="spacer"></span><button id="crop-ok" class="primary" type="button">Usar esta foto</button></div>
+    <div class="crop-row"><span id="crop-preview" class="avatar crop clickable"></span></div>
+    <label class="field"><span>Acercar</span><input id="crop-zoom" type="range" min="1" max="4" step="0.05" value="1"></label>
+    <div class="dialog-actions">
+      <button id="crop-cancel" class="ghost" type="button">Cancelar</button>
+      <span class="spacer"></span>
+      <button id="crop-ok" class="primary" type="button">Usar esta foto</button>
+    </div>
   </dialog>
 
   <!-- FUENTES PROPIAS -->
-  <dialog id="fonts-dialog">
-    <h2>Mis fuentes</h2>
+  <dialog id="fonts-dialog" class="dialog">
+    <div class="dialog-head"><h2>Mis fuentes</h2></div>
     <p class="small muted">Sube hasta 4 fuentes (.woff2, .woff, .ttf, .otf; máximo 300 KB cada una). Se guardan en tu perfil y se usan en tu nombre y en tus cuadros de texto. Tus contactos podrán descargarlas para ver tu perfil como lo diseñaste (se les pregunta antes). Usa solo fuentes que tengas derecho a compartir.</p>
     <ul id="fonts-list" class="plain"></ul>
-    <button id="fonts-add" type="button">Subir fuente</button>
-    <label>Fuente de mi nombre <select id="fonts-name"></select></label>
+    <button id="fonts-add" class="ghost" type="button">Subir fuente</button>
+    <label class="field"><span>Fuente de mi nombre</span><select id="fonts-name"></select></label>
     <div id="fonts-sample" class="fonts-sample"></div>
     <p id="fonts-msg" class="error small" role="alert"></p>
-    <div class="row"><span class="spacer"></span><button id="fonts-close" class="primary" type="button">Listo</button></div>
+    <div class="dialog-actions">
+      <span class="spacer"></span>
+      <button id="fonts-close" class="primary" type="button">Listo</button>
+    </div>
   </dialog>
 
   <!-- PRIVACIDAD DE RED -->
-  <dialog id="privacy-dialog" class="wide">
-    <h2>Privacidad de red</h2>
-    <p class="small"><strong>Importante:</strong> PrivChat conecta directamente a las personas, por eso <strong>tu IP no se oculta</strong> de tus contactos ni de los anfitriones de tus servidores. El cifrado protege el contenido, no tu IP. Para ocultarla de verdad usa una VPN de confianza; el diseño de repetidores está en la hoja de ruta.</p>
+  <dialog id="privacy-dialog" class="dialog dialog-wide">
+    <div class="dialog-head">
+      <span class="dialog-icon" data-icon="shield" aria-hidden="true"></span>
+      <div class="pane-title"><h2>Privacidad de red</h2><span class="pane-sub">Qué se ve y qué no</span></div>
+      <span class="spacer"></span>
+      <button id="privacy-close" class="icon-btn" type="button" aria-label="Cerrar privacidad" title="Cerrar">
+        <span data-icon="x" aria-hidden="true"></span>
+      </button>
+    </div>
+    <p class="small"><strong>Importante:</strong> Sigil Chat conecta directamente a las personas, por eso <strong>tu IP no se oculta</strong> de tus contactos ni de los anfitriones de tus servidores. El cifrado protege el contenido, no tu IP. Para ocultarla de verdad usa una VPN de confianza; el diseño de repetidores está en la hoja de ruta.</p>
     <p>Modo actual: <strong id="privacy-mode"></strong></p>
-    <ul id="privacy-rows" class="plain"></ul>
-    <div class="row">
+    <ul id="privacy-rows" class="plain privacy-rows"></ul>
+    <div class="dialog-actions">
       <button id="privacy-on" class="primary" type="button">Activar modo privado</button>
-      <button id="privacy-off" type="button">Volver a normal</button>
+      <button id="privacy-off" class="ghost" type="button">Volver a normal</button>
     </div>
     <p class="small muted">El modo privado deja de publicarte como nodo de la red y rechaza al instante a los desconocidos. Sigues pudiendo usar tus contactos y servidores; para que alguien nuevo te encuentre, deberán añadirse mutuamente por código.</p>
-    <div class="row"><span class="spacer"></span><button id="privacy-close" type="button">Cerrar</button></div>
   </dialog>
 
   <!-- ENLACE EXTERNO -->
-  <dialog id="link-dialog">
-    <h2>⚠ Vas a abrir un enlace externo</h2>
-    <p>Se abrirá en tu navegador, fuera de PrivChat. Lo envió otra persona y <strong>PrivChat no puede comprobar que sea seguro</strong>: podría ser una estafa, un sitio falso o contener virus.</p>
+  <dialog id="link-dialog" class="dialog">
+    <div class="dialog-head">
+      <span class="dialog-icon danger-text" data-icon="alert-triangle" aria-hidden="true"></span>
+      <div class="pane-title"><h2>Vas a abrir un enlace externo</h2><span class="pane-sub">Fuera de Sigil Chat</span></div>
+    </div>
+    <p>Se abrirá en tu navegador, fuera de Sigil Chat. Lo envió otra persona y <strong>Sigil Chat no puede comprobar que sea seguro</strong>: podría ser una estafa, un sitio falso o contener virus.</p>
     <div class="small muted">Sitio al que se dirige:</div>
     <div id="link-host" class="linkhost"></div>
-    <code id="link-url"></code>
+    <code id="link-url" class="url-box"></code>
     <ul id="link-warnings" class="plain small error"></ul>
     <label class="check"><input id="link-agree" type="checkbox"> Entiendo que abrir enlaces de personas desconocidas es bajo mi absoluta responsabilidad.</label>
-    <div class="row ask-row"><button id="link-cancel" type="button">Cancelar</button><span class="spacer"></span><button id="link-open" class="primary" type="button" disabled>Abrir enlace</button></div>
+    <div class="dialog-actions">
+      <button id="link-cancel" class="ghost" type="button">Cancelar</button>
+      <span class="spacer"></span>
+      <button id="link-open" class="primary" type="button" disabled>Abrir enlace</button>
+    </div>
   </dialog>
 
   <!-- BUSCADOR -->
-  <dialog id="search-dialog" class="wide">
-    <h2>Buscar mensajes</h2>
-    <div class="row">
-      <input id="search-q" placeholder="Palabras a buscar (sin importar mayúsculas ni tildes)" autocomplete="off">
-      <select id="search-scope"><option value="all">Todo</option><option value="chats">Chats</option><option value="servers">Servidores</option></select>
+  <dialog id="search-dialog" class="dialog dialog-wide">
+    <div class="dialog-head">
+      <span class="dialog-icon" data-icon="search" aria-hidden="true"></span>
+      <div class="pane-title"><h2>Buscar mensajes</h2><span class="pane-sub">Solo en este equipo</span></div>
+      <span class="spacer"></span>
+      <button id="search-close" class="icon-btn" type="button" aria-label="Cerrar buscador" title="Cerrar">
+        <span data-icon="x" aria-hidden="true"></span>
+      </button>
+    </div>
+    <div class="search-controls">
+      <div class="search-field">
+        <span data-icon="search" aria-hidden="true"></span>
+        <input id="search-q" placeholder="Palabras a buscar (sin importar mayúsculas ni tildes)" autocomplete="off" aria-label="Palabras a buscar">
+      </div>
+      <select id="search-scope" aria-label="Dónde buscar"><option value="all">Todo</option><option value="chats">Chats</option><option value="servers">Servidores</option></select>
     </div>
     <p class="small muted">La búsqueda se hace en tu equipo: no se envía nada ni se guarda ningún índice.</p>
-    <ul id="search-results" class="plain"></ul>
-    <div class="row"><span class="spacer"></span><button id="search-close" type="button">Cerrar</button></div>
+    <ul id="search-results" class="plain search-results"></ul>
   </dialog>
 
   <!-- APARIENCIA -->
-  <dialog id="theme-dialog">
-    <h2>Apariencia</h2>
-    <label>Tema
+  <dialog id="theme-dialog" class="dialog">
+    <div class="dialog-head">
+      <span class="dialog-icon" data-icon="settings" aria-hidden="true"></span>
+      <div class="pane-title"><h2>Apariencia</h2><span class="pane-sub">Dark Sanctuary y alternativas</span></div>
+      <span class="spacer"></span>
+      <button id="th-close" class="icon-btn" type="button" aria-label="Cerrar apariencia" title="Cerrar">
+        <span data-icon="x" aria-hidden="true"></span>
+      </button>
+    </div>
+    <label class="field">Tema
       <select id="th-mode">
         <option value="auto">Automático (como tu sistema)</option>
         <option value="light">Claro</option>
-        <option value="dark">Oscuro</option>
+        <option value="dark">Dark Sanctuary (oscuro)</option>
         <option value="gray">Gris</option>
         <option value="custom">Personalizado</option>
       </select>
     </label>
-    <div id="th-custom" hidden>
-      <label class="inline">Fondo <input id="th-bg" type="color"></label>
-      <label class="inline">Paneles <input id="th-panel" type="color"></label>
-      <label class="inline">Letra <input id="th-ink" type="color"></label>
-      <label class="inline">Bordes <input id="th-line" type="color"></label>
-      <label class="inline">Acento <input id="th-accent" type="color"></label>
-      <div class="row">
-        <button id="th-image" type="button">Foto de fondo</button>
-        <button id="th-image-clear" type="button">Quitar foto</button>
+    <div id="th-custom" class="settings-list" hidden>
+      <div class="field-grid">
+        <label class="inline">Fondo <input id="th-bg" type="color"></label>
+        <label class="inline">Paneles <input id="th-panel" type="color"></label>
+        <label class="inline">Letra <input id="th-ink" type="color"></label>
+        <label class="inline">Bordes <input id="th-line" type="color"></label>
+        <label class="inline">Acento <input id="th-accent" type="color"></label>
+      </div>
+      <div class="button-row">
+        <button id="th-image" class="ghost" type="button">Foto de fondo</button>
+        <button id="th-image-clear" class="ghost" type="button">Quitar foto</button>
       </div>
       <p class="small muted">La foto reemplaza el color de fondo; los colores de bordes y letra se mantienen.</p>
       <label class="check"><input id="th-glass" type="checkbox"> Efecto cristal (paneles semitransparentes)</label>
-      <label>Opacidad de los paneles <input id="th-opacity" type="range" min="20" max="100" step="5"></label>
+      <label class="field">Opacidad de los paneles <input id="th-opacity" type="range" min="20" max="100" step="5"></label>
       <p id="th-contrast" class="small error" role="status"></p>
-      <button id="th-reset" type="button">Restablecer colores</button>
+      <button id="th-reset" class="ghost" type="button">Restablecer colores</button>
     </div>
     <p id="th-msg" class="small error" role="alert"></p>
     <input id="th-file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
-    <div class="row"><span class="spacer"></span><button id="th-close" class="primary" type="button">Listo</button></div>
   </dialog>
 
   <!-- AJUSTES -->
-  <dialog id="settings">
-    <h2>Ajustes</h2>
-    <button id="btn-theme" type="button">Apariencia (tema, colores, fondo)</button>
-    <button id="btn-privacy" type="button">Privacidad de red (quién ve tu IP)</button>
-    <label class="check"><input id="set-node" type="checkbox"> Ayudar a la red (modo nodo)</label>
-    <p class="small muted">Tu PC ayuda a otros a encontrarse, con muy poco consumo. No guarda ni lee chats ajenos.</p>
-    <label class="check"><input id="set-accept" type="checkbox"> Aceptar solicitudes de desconocidos</label>
-    <p class="small muted">Si la desactivas, solo se pueden conectar contigo quienes ya están en tus contactos (ambos deben añadirse con el código del otro). Es la opción más segura contra el spam.</p>
-    <label class="check"><input id="set-bg" type="checkbox"> Mantener PrivChat en segundo plano al cerrar la ventana</label>
-    <p class="small muted">Imprescindible si alojas un servidor: si cierras la app del todo, tu servidor se desconecta. Se ve un icono junto al reloj para abrirla o salir.</p>
-    <label class="check"><input id="set-auto" type="checkbox"> Iniciar con el sistema (en segundo plano)</label>
-    <p id="set-auto-note" class="small muted">Para que entre sola al encender el equipo, activa también «Recordar en este dispositivo». Solo disponible en la versión instalada.</p>
-    <label class="check"><input id="set-remember" type="checkbox"> Recordar en este dispositivo</label>
-    <p class="small muted">Quien use tu usuario de Windows podría abrir la app sin contraseña. No lo actives en equipos compartidos.</p>
-    <p>Clave de acceso en pendrive: <strong id="set-key-status"></strong></p>
-    <div class="row">
-      <button id="btn-key-new" type="button">Crear clave de acceso</button>
-      <button id="btn-key-del" type="button">Quitar clave de acceso</button>
-    </div>
-    <p id="set-msg" class="ok" role="status"></p>
-    <div class="row">
-      <button id="btn-logout" type="button">Cerrar sesión</button>
+  <dialog id="settings" class="dialog settings-dialog">
+    <div class="dialog-head">
+      <span class="dialog-icon" data-icon="settings" aria-hidden="true"></span>
+      <div class="pane-title"><h2>Ajustes</h2><span class="pane-sub">Preferencias de este equipo</span></div>
       <span class="spacer"></span>
-      <button id="btn-settings-close" class="primary" type="button">Cerrar</button>
+      <button id="btn-settings-close" class="icon-btn" type="button" aria-label="Cerrar ajustes" title="Cerrar">
+        <span data-icon="x" aria-hidden="true"></span>
+      </button>
+    </div>
+    <div class="settings-shell">
+      <nav id="settings-nav" class="settings-nav" aria-label="Categorías de ajustes">
+        <button class="settings-tab is-active" type="button" data-settings-panel="identity" aria-current="true"><span data-icon="user" aria-hidden="true"></span> Identidad y acceso</button>
+        <button class="settings-tab" type="button" data-settings-panel="privacy"><span data-icon="shield" aria-hidden="true"></span> Privacidad</button>
+        <button class="settings-tab" type="button" data-settings-panel="notifications"><span data-icon="bell" aria-hidden="true"></span> Notificaciones</button>
+        <button class="settings-tab" type="button" data-settings-panel="app"><span data-icon="wifi" aria-hidden="true"></span> Aplicación</button>
+        <button class="settings-tab" type="button" data-settings-panel="appearance"><span data-icon="image" aria-hidden="true"></span> Apariencia</button>
+        <button class="settings-tab" type="button" data-settings-panel="about"><span data-icon="info" aria-hidden="true"></span> Acerca de</button>
+      </nav>
+      <div id="settings-panels" class="settings-panels">
+        <section class="settings-section" data-settings-section="identity">
+          <h3>Identidad y acceso</h3>
+          <p class="hint">Tu cuenta y tus claves se quedan en este computador.</p>
+          <div class="settings-row">
+            <div><strong>Clave de acceso en pendrive</strong><p id="set-key-status" class="small muted"></p></div>
+            <div class="button-row">
+              <button id="btn-key-new" class="ghost compact" type="button">Crear</button>
+              <button id="btn-key-del" class="ghost compact" type="button">Quitar</button>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div><strong>Recordar en este dispositivo</strong><p class="small muted">Quien use tu usuario de Windows podría abrir la app sin contraseña. No lo actives en equipos compartidos.</p></div>
+            <label class="switch"><input id="set-remember" type="checkbox"><span aria-hidden="true"></span><span class="sr-only">Recordar en este dispositivo</span></label>
+          </div>
+          <div class="settings-row">
+            <div><strong>Cerrar sesión</strong><p class="small muted">Se bloquea la cuenta en este equipo hasta que vuelvas a entrar.</p></div>
+            <button id="btn-logout" class="ghost danger-text" type="button"><span data-icon="log-out" aria-hidden="true"></span> Cerrar sesión</button>
+          </div>
+        </section>
+
+        <section class="settings-section" data-settings-section="privacy" hidden>
+          <h3>Privacidad</h3>
+          <p class="hint">Controla quién puede encontrarte y qué ve la red.</p>
+          <div class="settings-row">
+            <div><strong>Quién ve tu IP</strong><p class="small muted">Revisa el estado real de tu conexión y activa el modo privado.</p></div>
+            <button id="btn-privacy" class="ghost compact" type="button"><span data-icon="shield" aria-hidden="true"></span> Ver privacidad de red</button>
+          </div>
+          <div class="settings-row">
+            <div><strong>Ayudar a la red (modo nodo)</strong><p class="small muted">Tu PC ayuda a otros a encontrarse, con muy poco consumo. No guarda ni lee chats ajenos.</p></div>
+            <label class="switch"><input id="set-node" type="checkbox"><span aria-hidden="true"></span><span class="sr-only">Ayudar a la red</span></label>
+          </div>
+          <div class="settings-row">
+            <div><strong>Aceptar solicitudes de desconocidos</strong><p class="small muted">Si lo desactivas, solo pueden conectarse quienes ya están en tus contactos. Es la opción más segura contra el spam.</p></div>
+            <label class="switch"><input id="set-accept" type="checkbox"><span aria-hidden="true"></span><span class="sr-only">Aceptar solicitudes de desconocidos</span></label>
+          </div>
+        </section>
+
+        <section class="settings-section" data-settings-section="notifications" hidden>
+          <h3>Notificaciones</h3>
+          <p class="hint">Los avisos del sistema solo aparecen cuando la ventana no tiene el foco. El silencio por contacto o servidor se guarda en este equipo.</p>
+          <div class="settings-row">
+            <div><strong>Mostrar notificaciones</strong><p class="small muted">Avisos de mensajes nuevos y llamadas entrantes.</p></div>
+            <label class="switch"><input id="set-notif" type="checkbox"><span aria-hidden="true"></span><span class="sr-only">Mostrar notificaciones</span></label>
+          </div>
+          <div class="settings-row">
+            <div><strong>Sonido del sistema</strong><p class="small muted">El sonido lo pone tu sistema operativo. Si lo desactivas, la notificación aparece en silencio.</p></div>
+            <label class="switch"><input id="set-notif-sound" type="checkbox"><span aria-hidden="true"></span><span class="sr-only">Sonido del sistema</span></label>
+          </div>
+          <div class="settings-row settings-row-column">
+            <div><strong>Contactos y servidores silenciados</strong><p class="small muted">Haz clic derecho en un contacto o en un servidor para silenciarlo. Aquí puedes volver a activarlo.</p></div>
+            <ul id="muted-list" class="plain muted-list"></ul>
+          </div>
+        </section>
+
+        <section class="settings-section" data-settings-section="app" hidden>          <h3>Aplicación</h3>
+          <p class="hint">Comportamiento de la ventana y del arranque.</p>
+          <div class="settings-row">
+            <div><strong>Mantener Sigil Chat en segundo plano</strong><p class="small muted">Imprescindible si alojas un servidor: si cierras la app del todo, tu servidor se desconecta. Se ve un icono junto al reloj.</p></div>
+            <label class="switch"><input id="set-bg" type="checkbox"><span aria-hidden="true"></span><span class="sr-only">Mantener en segundo plano al cerrar</span></label>
+          </div>
+          <div class="settings-row">
+            <div><strong>Iniciar con el sistema</strong><p id="set-auto-note" class="small muted">Para entrar sola al encender el equipo, activa también «Recordar en este dispositivo». Solo disponible en la versión instalada.</p></div>
+            <label class="switch"><input id="set-auto" type="checkbox"><span aria-hidden="true"></span><span class="sr-only">Iniciar con el sistema</span></label>
+          </div>
+        </section>
+
+        <section class="settings-section" data-settings-section="appearance" hidden>
+          <h3>Apariencia</h3>
+          <p class="hint">El tema se aplica al instante y se guarda en este equipo.</p>
+          <div class="theme-preview" aria-hidden="true">
+            <span class="theme-swatch bg-swatch"></span>
+            <span class="theme-swatch panel-swatch"></span>
+            <span class="theme-swatch surface-swatch"></span>
+            <span class="theme-swatch accent-swatch"></span>
+            <span class="theme-swatch text-swatch"></span>
+          </div>
+          <div class="settings-row">
+            <div><strong>Tema y fondo</strong><p class="small muted">Dark Sanctuary, claro, gris o colores propios.</p></div>
+            <button id="btn-theme" class="ghost compact" type="button"><span data-icon="image" aria-hidden="true"></span> Cambiar apariencia</button>
+          </div>
+        </section>
+
+        <section class="settings-section" data-settings-section="about" hidden>
+          <h3>Acerca de</h3>
+          <div class="about-brand">
+            <span class="brand-mark" data-icon="brand" aria-hidden="true"></span>
+            <div><strong>Sigil Chat</strong><p class="small muted">Prototipo 0.5.0 · sin auditoría externa</p></div>
+          </div>
+          <div class="settings-row">
+            <div><strong>Privacidad por diseño</strong><p class="small muted">Sin analítica ni telemetría. La cuenta se guarda cifrada en este equipo con AES-256-GCM. Los servidores nuevos cifran el contenido de extremo a extremo.</p></div>
+          </div>
+          <div class="settings-row">
+            <div><strong>Límites conocidos</strong><p class="small muted">Tu IP es visible para tus contactos y anfitriones. El modo privado reduce la exposición, no la elimina. Los metadatos de servidores (quién y cuándo) son visibles para el anfitrión.</p></div>
+          </div>
+        </section>
+      </div>
+    </div>
+    <div class="settings-foot">
+      <p id="set-msg" class="ok" role="status"></p>
+      <span class="spacer"></span>
+      <span class="hint"><span data-icon="info" aria-hidden="true"></span> Los cambios se guardan al instante.</span>
     </div>
   </dialog>
 
-  <!-- LLAMADA -->
-  <div id="call" hidden>
-    <div class="call-box">
-      <div id="call-title"></div>
-      <div id="call-sub" class="muted"></div>
-      <div class="row">
-        <button id="call-accept" class="primary" type="button" hidden>Contestar</button>
-        <button id="call-mute" type="button" hidden>Silenciar</button>
-        <button id="call-end" class="danger" type="button">Colgar</button>
+  <!-- LLAMADA CON AMIGOS -->
+  <div id="call" class="call-overlay" hidden>
+    <div class="call-box" role="dialog" aria-modal="true" aria-labelledby="call-title">
+      <div id="call-avatar" class="call-avatar" aria-hidden="true"><span data-icon="user" data-size="34"></span></div>
+      <div class="call-head">
+        <div id="call-title" class="call-name"></div>
+        <div id="call-sub" class="call-status muted"></div>
       </div>
+      <div class="call-wave" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+      <div class="call-actions">
+        <button id="call-accept" class="primary" type="button" hidden>Contestar</button>
+        <button id="call-mute" class="call-btn" type="button" aria-pressed="false" hidden>
+          <span data-icon="mic" aria-hidden="true"></span><span id="call-mute-label" class="call-btn-label">Silenciar</span>
+        </button>
+        <button id="call-end" class="call-btn danger" type="button">
+          <span data-icon="phone-off" aria-hidden="true"></span><span id="call-end-label" class="call-btn-label">Colgar</span>
+        </button>
+      </div>
+      <p id="call-codec" class="call-codec small muted"></p>
     </div>
   </div>
 
-  <div id="toast" role="status" hidden></div>
+  <!-- CONFIGURACIÓN DEL SERVIDOR -->
+  <dialog id="srv-settings-dialog" class="dialog settings-dialog">
+    <div class="dialog-head">
+      <span class="dialog-icon" data-icon="settings" aria-hidden="true"></span>
+      <div class="pane-title"><h2>Configuración del servidor</h2><span id="srv-set-sub" class="pane-sub"></span></div>
+      <span class="spacer"></span>
+      <button id="srv-settings-close" class="icon-btn" type="button" aria-label="Cerrar configuración" title="Cerrar">
+        <span data-icon="x" aria-hidden="true"></span>
+      </button>
+    </div>
+    <div class="settings-shell">
+      <nav id="srv-settings-nav" class="settings-nav" aria-label="Secciones del servidor">
+        <button class="settings-tab is-active" type="button" data-srv-panel="general" aria-current="true"><span data-icon="server" aria-hidden="true"></span> General</button>
+        <button class="settings-tab" type="button" data-srv-panel="roles"><span data-icon="users" aria-hidden="true"></span> Roles</button>
+        <button class="settings-tab" type="button" data-srv-panel="members"><span data-icon="shield" aria-hidden="true"></span> Miembros</button>
+      </nav>
+      <div class="settings-panels">
+        <section class="settings-section" data-srv-section="general">
+          <h3>General</h3>
+          <p class="hint">Solo el dueño y los administradores pueden cambiar estos datos.</p>
+          <div class="settings-row">
+            <div><strong>Nombre del servidor</strong><p class="small muted">Se muestra a todos los miembros.</p></div>
+            <div class="inline-form">
+              <input id="srv-set-name" maxlength="40" autocomplete="off" aria-label="Nombre del servidor">
+              <button id="srv-set-name-save" class="ghost compact" type="button">Guardar</button>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div><strong>Invitación</strong><p class="small muted">Crea un código para que entre alguien nuevo.</p></div>
+            <button id="srv-set-invite" class="ghost compact" type="button"><span data-icon="key" aria-hidden="true"></span> Invitar</button>
+          </div>
+          <div class="settings-row">
+            <div><strong>Datos del servidor</strong><p id="srv-set-meta" class="small muted"></p></div>
+          </div>
+          <div id="srv-set-danger-row" class="settings-row" hidden>
+            <div><strong>Eliminar el servidor</strong><p class="small muted">Se expulsa a todos los miembros y se borra el historial de este equipo. No se puede deshacer.</p></div>
+            <button id="srv-set-close" class="ghost compact danger-text" type="button">Eliminar</button>
+          </div>
+        </section>
 
+        <section class="settings-section" data-srv-section="roles" hidden>
+          <h3>Roles</h3>
+          <p class="hint">Los roles personalizados cambian el nombre y el color; el nivel base sigue decidiendo los permisos.</p>
+          <div class="roles-head">
+            <span class="small muted">Roles del servidor</span>
+            <button id="srv-role-add" class="ghost compact" type="button" hidden><span data-icon="plus" aria-hidden="true"></span> Nuevo rol</button>
+          </div>
+          <ul id="srv-roles" class="plain roles-list"></ul>
+          <form id="srv-role-form" class="role-form" hidden>
+            <h4 id="srv-role-form-title">Nuevo rol</h4>
+            <label class="field compact-field"><span>Nombre</span><input id="srv-role-name" maxlength="24" autocomplete="off" required></label>
+            <label class="field compact-field"><span>Color</span><input id="srv-role-color" type="color" value="#8bc34a"></label>
+            <label class="field compact-field"><span>Nivel base</span>
+              <select id="srv-role-base">
+                <option value="member">Miembro</option>
+                <option value="mod">Moderador</option>
+                <option value="admin">Administrador</option>
+              </select>
+            </label>
+            <div class="button-row">
+              <button id="srv-role-save" class="primary compact" type="submit">Guardar</button>
+              <button id="srv-role-cancel" class="ghost compact" type="button">Cancelar</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="settings-section" data-srv-section="members" hidden>
+          <h3>Miembros</h3>
+          <p class="hint">Asigna roles y modera. Solo puedes actuar sobre miembros de rango inferior al tuyo.</p>
+          <ul id="srv-set-members" class="plain settings-members"></ul>
+          <div id="srv-bans-box" class="subpanel" hidden>
+            <h3>Baneados</h3>
+            <ul id="srv-bans" class="plain small"></ul>
+          </div>
+          <div id="srv-audit-box" class="subpanel" hidden>
+            <h3>Registro</h3>
+            <ul id="srv-audit" class="plain small"></ul>
+          </div>
+        </section>
+      </div>
+    </div>
+    <div class="settings-foot">
+      <p id="srv-settings-msg" class="ok" role="status"></p>
+      <span class="spacer"></span>
+      <span class="hint"><span data-icon="info" aria-hidden="true"></span> Los cambios se aplican al instante.</span>
+    </div>
+  </dialog>
+
+  <!-- Menú contextual de contactos y servidores -->
+  <div id="context-menu" class="context-menu" role="menu" hidden></div>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+  <div id="request-popup" class="request-popup" role="status" aria-live="polite" hidden></div>
+
+  <script src="icons.js"></script>
   <script src="theme.js"></script>
   <script src="links.js"></script>
   <script src="profile.js"></script>
   <script src="servers.js"></script>
+  <script src="audio.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

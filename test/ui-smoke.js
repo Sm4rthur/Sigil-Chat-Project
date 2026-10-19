@@ -82,6 +82,7 @@ sandbox.api = undefined
 sandbox.window.api = {
   invoke: async (channel, arg) => { calls.push([channel, arg]); return res[channel] ? res[channel](arg) : { ok: true } },
   sendAudio() {},
+  sendVoice() {},
   onEvent(cb) { listener = cb }
 }
 vm.createContext(sandbox)
@@ -89,7 +90,7 @@ const run = (code) => vm.runInContext(code, sandbox)
 const tick = (ms = 30) => new Promise((r) => setTimeout(r, ms))
 
 ;(async () => {
-  for (const f of ['theme.js', 'links.js', 'profile.js', 'servers.js', 'app.js']) {
+  for (const f of ['icons.js', 'theme.js', 'links.js', 'profile.js', 'servers.js', 'audio.js', 'app.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'ui', f), 'utf8'), sandbox, { filename: f })
   }
   await tick(100)

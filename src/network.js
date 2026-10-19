@@ -22,7 +22,11 @@ const { validateProfile, LIMITS: PROFILE_LIMITS } = require('./profile')
 const { Servers } = require('./servers')
 const { FILES, sanitizeName, mimeFor } = require('./files')
 const e2 = require('./e2ee')
-const { T_JSON, T_AUDIO, T_FILE, MAX_JSON_FRAME, MAX_AUDIO_FRAME, encodeFrame, FrameParser } = require('./frames')
+const {
+  T_JSON, T_AUDIO, T_FILE, T_VOICE,
+  MAX_JSON_FRAME, MAX_AUDIO_FRAME, MAX_VOICE_FRAME, VOICE_HEADER,
+  encodeFrame, FrameParser
+} = require('./frames')
 
 // Límites de seguridad (ajustables)
 const LIMITS = {
@@ -224,6 +228,12 @@ class P2PNode extends EventEmitter {
     if (type === T_AUDIO) {
       if (payload.length > MAX_AUDIO_FRAME || !peer.audio.take(payload.length)) return // se descarta
       return this._onAudio(peer, payload)
+    }
+    if (type === T_VOICE) {
+      // Audio de un canal de voz de servidor: lo reenvía el anfitrión.
+      if (payload.length <= VOICE_HEADER || payload.length > VOICE_HEADER + MAX_VOICE_FRAME || !peer.audio.take(payload.length)) return
+      if (peer.ready) this.servers.onVoice(peer, payload)
+      return
     }
     if (type !== T_JSON) return
     if (payload.length > MAX_JSON_FRAME) throw new Error('Paquete demasiado grande')
@@ -546,6 +556,7 @@ class P2PNode extends EventEmitter {
       const p = this.peers.get(c.key)
       return {
         key: c.key, name: c.name, remoteName: c.remoteName, verified: !!c.verified, online: !!(p && p.ready),
+        muted: (this.data.settings.mutedContacts || []).includes(c.key),
         profRev: this.profiles ? this.profiles.rev(c.key) : ''
       }
     })
@@ -770,6 +781,19 @@ class P2PNode extends EventEmitter {
     if (this.call && this.call.state === 'active' && this.call.peer === peer.key && peer.ready) {
       this.emit('audio', payload)
     }
+  }
+
+  // ---------- Voz en canales de servidor ----------
+  // Un miembro manda sus paquetes al anfitrión; el anfitrión los reparte al resto
+  // de quienes están en ese canal. El encabezado dice el servidor, el canal y quién habla.
+
+  sendVoice(peer, sid, cid, speaker, buf) {
+    if (!peer || !peer.ready || peer.conn.destroyed) return
+    if (!buf || buf.length === 0 || buf.length > MAX_VOICE_FRAME) return
+    if (peer.conn.writableLength > 128 * 1024) return // red lenta: descartar antes que acumular
+    const head = Buffer.from(String(sid) + String(cid) + String(speaker), 'utf8')
+    if (head.length !== VOICE_HEADER) return
+    peer.conn.write(encodeFrame(T_VOICE, Buffer.concat([head, buf])))
   }
 }
 

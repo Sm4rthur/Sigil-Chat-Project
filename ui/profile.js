@@ -133,6 +133,7 @@ const ProfileUI = (() => {
       stage.style.backgroundRepeat = 'no-repeat'
     }
     host.style.height = Math.round(page.height * scale) + 'px'
+    host.style.backgroundColor = page.bg.color
 
     const nodes = new Map()
     for (const b of page.blocks) {
@@ -212,7 +213,9 @@ const ProfileUI = (() => {
 
   async function view({ key, name, verified, isMe }) {
     const dialog = byId('profile-dialog')
-    byId('pv-name').textContent = name + (verified ? ' ✓' : '')
+    const nameHeading = byId('pv-name')
+    nameHeading.textContent = name
+    if (verified) nameHeading.append(IconUI.labeled('check', 'Nombre registrado', 16))
     byId('pv-name').style.fontFamily = ''
     byId('pv-status').textContent = ''
     byId('pv-avatar').replaceChildren(avatarEl('', name, 'big'))

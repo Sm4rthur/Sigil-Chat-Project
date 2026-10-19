@@ -1,0 +1,6 @@
+node_modules/
+dist/
+datos-*/
+*.privchat-key
+server/data/
+host-data/

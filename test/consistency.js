@@ -11,6 +11,7 @@ const profileUi = read('ui/profile.js')
 const serversUi = read('ui/servers.js')
 const linksUi = read('ui/links.js')
 const themeUi = read('ui/theme.js')
+const iconsUi = read('ui/icons.js')
 const main = read('src/main.js')
 const preload = read('src/preload.js')
 
@@ -43,7 +44,7 @@ assert.ok(![...html.matchAll(/<script\b([^>]*)>/g)].some((m) => !/\bsrc=/.test(m
 for (const m of linksUi.matchAll(/byId\('([^']+)'\)/g)) assert.ok(ids.has(m[1]), 'Falta en index.html el elemento: ' + m[1])
 for (const m of linksUi.matchAll(/rpc\('([^']+)'/g)) assert.ok(channels.has(m[1]), 'links.js usa un canal inexistente: ' + m[1])
 for (const m of themeUi.matchAll(/byId\('([^']+)'\)/g)) assert.ok(ids.has(m[1]), 'Falta en index.html el elemento (tema): ' + m[1])
-for (const [name, code] of [['app.js', app], ['profile.js', profileUi], ['servers.js', serversUi], ['links.js', linksUi], ['theme.js', themeUi]]) {
+for (const [name, code] of [['app.js', app], ['profile.js', profileUi], ['servers.js', serversUi], ['links.js', linksUi], ['theme.js', themeUi], ['icons.js', iconsUi], ['audio.js', read('ui/audio.js')]]) {
   assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\(|new Function|setAttribute\(\s*['"]style/.test(code), 'API peligrosa en ' + name + ' (riesgo de inyección)')
   assert.ok(!/\bfetch\(|XMLHttpRequest|WebSocket|sendBeacon/.test(code), name + ' no debe hacer conexiones')
 }

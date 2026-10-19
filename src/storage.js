@@ -16,7 +16,10 @@ function defaults() {
     servers: {},       // servidores: los que alojo y a los que pertenezco (ver servers.js)
     e2eeKeys: null,    // clave X25519 para recibir claves de grupo (la identidad firma que es tuya)
     fontConsent: {},   // contactos cuyas fuentes personalizadas acepté cargar: { [clave]: true|false }
-    settings: { nodeMode: true, acceptRequests: true, runInBackground: false, autoStart: false }
+    settings: {
+      nodeMode: true, acceptRequests: true, runInBackground: false, autoStart: false,
+      notifications: true, notificationSound: true, mutedContacts: [], mutedServers: []
+    }
   }
 }
 

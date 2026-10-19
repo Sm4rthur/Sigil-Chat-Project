@@ -1,0 +1,71 @@
+# Crea el .exe de Windows automáticamente en los servidores de GitHub (gratis para proyectos públicos).
+# Uso: pestaña "Actions" > "Compilar para Windows" > "Run workflow". El .exe queda en "Artifacts".
+# Para publicarlo como versión descargable: crea una etiqueta, por ejemplo v0.1.0.
+# Cada versión incluye SHA256SUMS.txt para que cualquiera verifique que el archivo no fue alterado.
+name: Compilar para Windows
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write       # publicar la versión
+      id-token: write       # firmar la procedencia del archivo
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar dependencias
+        shell: pwsh
+        run: |
+          if (Test-Path package-lock.json) { npm ci } else { npm install }
+
+      - name: Pruebas automáticas (si fallan, no se publica nada)
+        run: npm test
+
+      - name: Auditoría de dependencias (avisa de fallos conocidos)
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+      - name: Crear instaladores
+        run: npm run dist:win
+
+      - name: Sumas de verificación SHA-256
+        shell: pwsh
+        run: |
+          Get-ChildItem dist -Filter *.exe | ForEach-Object {
+            $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$h  $($_.Name)"
+          } | Out-File -Encoding ascii dist/SHA256SUMS.txt
+
+      - name: Certificar procedencia (qué código y qué proceso crearon el archivo)
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'dist/*.exe'
+        continue-on-error: true   # solo funciona en repositorios públicos
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PrivChat-Windows
+          path: |
+            dist/*.exe
+            dist/SHA256SUMS.txt
+
+      - name: Publicar versión
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = Get-ChildItem dist -Filter *.exe | ForEach-Object { $_.FullName }
+          gh release create "${{ github.ref_name }}" $files dist/SHA256SUMS.txt --generate-notes

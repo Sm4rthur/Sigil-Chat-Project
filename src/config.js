@@ -2,7 +2,7 @@
 // Ajustes fáciles de cambiar. Todo el proyecto lee de aquí.
 
 module.exports = {
-  APP_NAME: 'PrivChat',
+  APP_NAME: 'Sigil Chat',
 
   // true = al crear la cuenta solo se aceptan correos @gmail.com
   REQUIRE_GMAIL: true,

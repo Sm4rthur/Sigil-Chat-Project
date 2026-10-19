@@ -1,0 +1,39 @@
+PRIVCHAT - LEEME PRIMERO
+========================
+
+¿Qué es?  Un chat con llamadas, perfiles y servidores que funciona directo entre computadores,
+          sin servidor central y sin pedir datos personales.
+
+PARA LOS USUARIOS (lo único que necesitan)
+------------------------------------------
+Instalar el archivo "PrivChat-Instalador-X.Y.Z.exe" (o abrir la versión "Portable").
+No hace falta instalar Node.js ni ningún otro programa.
+
+PARA TI (UNA SOLA VEZ): CÓMO OBTENER EL INSTALADOR
+--------------------------------------------------
+El instalador (.exe) no puede venir dentro de este zip porque se crea a partir del código en un
+equipo con internet. Lo más fácil es dejar que GitHub lo cree gratis:
+
+  1. Crea una cuenta en https://github.com y un repositorio nuevo PÚBLICO (botón "New").
+  2. Muestra los archivos ocultos del Explorador (pestaña Vista > Mostrar > Elementos ocultos).
+     Es necesario para que se vea la carpeta ".github".
+  3. En el repositorio: "Add file" > "Upload files" y arrastra TODO el contenido de esta carpeta
+     (incluida ".github"). Pulsa "Commit changes".
+  4. Pestaña "Actions" > "Compilar para Windows" > "Run workflow".
+  5. Espera 5 a 10 minutos. Abre la ejecución terminada y baja "PrivChat-Windows" (sección Artifacts).
+  6. Dentro está el instalador, la versión portable y SHA256SUMS.txt.
+
+Si algo falla, copia el mensaje de error y pégalo en el chat para corregirlo.
+
+Alternativa en un PC con Windows: instala Node.js (https://nodejs.org) y haz doble clic en
+"build-windows.bat". Los archivos quedan en la carpeta "dist".
+
+AVISO DE WINDOWS
+----------------
+Como el programa no está firmado digitalmente, Windows dirá "Windows protegió su PC".
+Pulsa "Más información" y luego "Ejecutar de todas formas".
+
+MÁS INFORMACIÓN
+---------------
+README.md  -> todo lo que hace la app y cómo usarla
+SECURITY.md -> protecciones de seguridad y riesgos que siguen existiendo

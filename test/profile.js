@@ -5,6 +5,17 @@ const { makeNode, connect, sleep, finish } = require('./helpers')
 const { encodeFrame, FrameParser, T_JSON } = require('../src/frames')
 const { validateProfile, emptyProfile, imageInfo, profileRev, LIMITS } = require('../src/profile')
 
+// Espera a que se cumpla una condición en vez de depender de un tiempo fijo:
+// el perfil viaja por partes y el tiempo depende del equipo.
+async function waitFor(fn, timeout = 8000, step = 25) {
+  const until = Date.now() + timeout
+  while (Date.now() < until) {
+    if (fn()) return true
+    await sleep(step)
+  }
+  return false
+}
+
 // Imágenes de prueba con estructura válida (la app comprueba estructura y peso; no decodifica los píxeles)
 const SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 const chunk = (type, data) => { const h = Buffer.alloc(8); h.writeUInt32BE(data.length, 0); h.write(type, 4, 'latin1'); return Buffer.concat([h, data, Buffer.alloc(4)]) }
@@ -147,7 +158,7 @@ const textBlock = (o = {}) => ({ id: 'a1', type: 'text', x: 10, y: 10, w: 200, h
   })
   ana.setMyProfile(anaProfile)
   const [link, linkB] = connect(ana, beto)
-  await sleep(1800) // el perfil viaja por partes
+  assert.ok(await waitFor(() => beto.profiles.rev(ana.code) === profileRev(anaProfile)), 'el perfil debe llegar por partes a tiempo')
   assert.strictEqual(beto.profiles.get(ana.code).status, 'Hola, soy Ana')
   assert.strictEqual(beto.profiles.rev(ana.code), profileRev(anaProfile))
   assert.strictEqual(beto.profiles.get(ana.code).page.blocks.length, 2)
@@ -160,7 +171,7 @@ const textBlock = (o = {}) => ({ id: 'a1', type: 'text', x: 10, y: 10, w: 200, h
   // Ana lo edita con Beto conectado: se actualiza solo
   const v2 = validateProfile({ ...anaProfile, status: 'Cambié mi estado' })
   ana.setMyProfile(v2)
-  await sleep(2600) // el perfil ahora pesa más (fuente e imágenes) y viaja por partes
+  assert.ok(await waitFor(() => beto.profiles.get(ana.code)?.status === 'Cambié mi estado'), 'la actualización debe llegar a tiempo')
   assert.strictEqual(beto.profiles.get(ana.code).status, 'Cambié mi estado')
 
   // Un desconocido no recibe nada aunque lo pida

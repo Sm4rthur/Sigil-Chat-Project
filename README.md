@@ -3,7 +3,7 @@
 Chat y llamadas de audio entre computadores, **sin servidor central** y sin pedir datos personales ni biométricos.
 Cada PC guarda sus propios datos, cifrados, y se conecta directamente con los de sus amigos.
 
-> **Estado: prototipo 0.1.** La lógica de cuentas, cifrado, chat y llamadas está probada con tests
+> **Estado: prototipo 0.6.** La lógica de cuentas, cifrado, chat y llamadas está probada con tests
 > automáticos (`npm test`), pero la conexión por internet real y la ventana de la app **todavía no se han
 > probado en dos computadores**. Hazlo antes de compartir el proyecto (ver "Probarla").
 
@@ -52,6 +52,7 @@ Un servidor **vive en el PC de quien lo crea** (el "anfitrión"): ahí están lo
 demás se conectan a él. Por eso:
 - **Si el PC del anfitrión está apagado o la app cerrada, el servidor está inactivo.** Activa el modo segundo plano (Ajustes).
 - **Cifrado de extremo a extremo (🔒):** en los servidores nuevos cada mensaje va firmado por su autor y cifrado, de modo que ni el anfitrión ni un repetidor (por ejemplo, una Raspberry Pi) pueden leerlo ni falsificarlo. Solo el dueño crea invitaciones y reparte las claves; quien entra lee desde que se une; los mensajes no se editan (sí se borran). Los servidores antiguos quedan marcados ⚠ y su anfitrión sí puede leerlos. Detalles y límites en [SECURITY.md](SECURITY.md).
+- **Canales de voz** (🔊): además de los canales de texto, un servidor puede tener canales de voz. Se entra y se sale desde el propio canal, sin ventana aparte; ves quién está dentro y quién tiene el micrófono silenciado. El audio va por la misma conexión cifrada y lo reparte el PC del anfitrión (una "SFU" sencilla): el anfitrión reenvía la voz de cada persona al resto del canal, sin oírse a sí mismo. Es para grupos pequeños (unas 8–10 personas).
 - Máximo 50 miembros, 25 canales y 10 servidores por anfitrión.
 
 Cómo se usa: en la barra lateral, **Crear servidor** (se crea el canal `#general`); **Invitar** genera un código con validez y
@@ -66,8 +67,8 @@ número de usos a tu elección; quien lo recibe pulsa **Unirme** y lo pega. Los 
 
 Nadie puede actuar sobre alguien con su mismo rango o mayor. Un expulsado puede volver con una invitación; un baneado no.
 
-**Todavía no incluye:** federación (co-anfitriones y repetidores comunitarios), canales de voz, pantalla compartida, archivos en servidores,
-reacciones, hilos, roles personalizados, permisos por canal, emojis propios, bots e integraciones, ni verificación de claves entre miembros.
+**Todavía no incluye:** federación (co-anfitriones y repetidores comunitarios), pantalla compartida, archivos en servidores,
+reacciones, hilos, permisos por canal, emojis propios, bots e integraciones, ni verificación de claves entre miembros.
 La [hoja de ruta](ROADMAP.md) explica el orden y por qué.
 
 ## Privacidad de red
@@ -131,8 +132,8 @@ Esta configuración de empaquetado todavía no se ha probado de punta a punta.
 - **Clave de acceso en pendrive (opcional):** se ofrece justo después de crear la cuenta. Guarda un archivo
   `.privchat-key`; al conectar el pendrive, la app entra sola. Se puede crear o quitar en Ajustes.
 - **Recordar en este dispositivo:** guarda la sesión en el llavero del sistema operativo.
-- **Servidores (grupos)** estilo Discord, alojados en el PC de quien los crea: canales de texto, **cifrado de extremo a extremo**, invitaciones, roles
-  (dueño, admin, moderador, miembro), expulsar, banear, silenciar, editar y borrar mensajes, registro de acciones,
+- **Servidores (grupos)** estilo Discord, alojados en el PC de quien los crea: canales de **texto y de voz**, **cifrado de extremo a extremo**, invitaciones, roles
+  (dueño, admin, moderador, miembro) y **roles personalizables** (nombre, color y rango base), expulsar, banear, silenciar, editar y borrar mensajes, registro de acciones,
   menciones con `@usuario` e historial. Ver la sección "Servidores".
 - **Archivos en chats:** envía documentos, fotos y otros archivos (máx. 10 MB). Quien los recibe decide si descargarlos; hay vista previa de imágenes y texto, y la app **nunca abre ni ejecuta** un archivo.
 - **Enlaces con advertencia:** abrir un enlace externo exige confirmar y aceptar que es bajo tu absoluta responsabilidad; se muestra el sitio real y avisos (acortadores, direcciones numéricas, dominios que imitan a otros).
@@ -151,7 +152,10 @@ Esta configuración de empaquetado todavía no se ha probado de punta a punta.
 - **Chat:** mensajes directos y cifrados de extremo a extremo. Si tu contacto no está conectado, el mensaje
   queda pendiente (⏳) y se envía solo cuando ambos coincidan en línea.
 - **Solicitudes:** si alguien con tu código te escribe, queda como solicitud; puedes aceptar o rechazar y bloquear.
-- **Llamadas de audio** por la misma conexión cifrada (sin servidores de terceros).
+- **Llamadas de audio** por la misma conexión cifrada (sin servidores de terceros), comprimidas con **Opus**
+  (WebCodecs) a ~24 kbps: se oyen mejor y consumen mucha menos conexión que antes.
+- **Canales de voz en servidores:** entra y sal del canal desde la propia lista; el anfitrión reparte el audio
+  entre quienes están dentro y se ve quién habla y quién está silenciado. Se usa el mismo motor de audio que las llamadas.
 - **Modo nodo:** tu PC se une a la red pública (DHT) y ayuda a otros a encontrarse, con muy poco consumo.
 - **Permisos:** solo micrófono; cámara y todo lo demás se niegan.
 - **Seguridad reforzada:** límites contra abuso, validación de todo dato de red, pantalla aislada, freno de intentos
@@ -167,8 +171,9 @@ Esta configuración de empaquetado todavía no se ha probado de punta a punta.
   Hyperswarm (como BitTorrent). Puedes cambiarlos en `src/config.js` (`BOOTSTRAP`) y operar los tuyos.
 - **Tus contactos ven tu IP** (es una conexión directa). Si necesitas anonimato fuerte, hay que añadir Tor/relays.
 - **Mensajes sin servidor:** si ambos nunca coinciden en línea, no se entregan.
-- **Llamadas:** solo audio, sin compresión (~256 kbps) y sin video. En algunas redes muy restrictivas
-  la conexión directa puede fallar.
+- **Llamadas y voz:** solo audio, sin video. Se comprime con Opus (WebCodecs) a ~24 kbps; si el equipo no
+  trae WebCodecs con Opus, se usa un PCM de 16 bits de reserva. Usa auriculares para evitar eco. En algunas
+  redes muy restrictivas la conexión directa puede fallar.
 - **"Modo nodo":** la red decide cuándo tu PC califica como nodo (conexión estable y accesible).
   No retransmite chats de otros ni guarda mensajes ajenos.
 - **Seguridad:** el código no ha sido auditado. Antes de usarlo con gente que lo necesite de verdad,
@@ -189,6 +194,7 @@ Esta configuración de empaquetado todavía no se ha probado de punta a punta.
 | `src/profile.js` | Validación estricta del perfil (todo lo que llega de otros se limpia aquí) |
 | `src/servers.js` | Servidores: roles, invitaciones, moderación, historial (lado anfitrión y lado miembro) |
 | `ui/profile.js`, `ui/servers.js` | Pantallas del perfil (ver y editar) y de los servidores |
+| `ui/audio.js` | Motor de audio: captura, Opus (WebCodecs), mezcla y reproducción de la voz |
 | `assets/icon.png` | Icono de la app, del instalador y de la bandeja |
 | `server/` | Registro opcional de nombres únicos (se ejecuta aparte, sin dependencias) |
 | `src/frames.js` | Formato de los paquetes que viajan entre PCs |
@@ -197,8 +203,10 @@ Esta configuración de empaquetado todavía no se ha probado de punta a punta.
 
 ## Siguientes pasos sugeridos
 
-Exportar/importar cuenta, llamadas con compresión (Opus), grupos, enviar archivos, ejecutar en segundo plano
-(bandeja del sistema), instaladores para Windows/Mac/Linux (electron-builder) y una revisión de seguridad.
+Federación con co-anfitriones y repetidores comunitarios (Fase B), archivos cifrados dentro de los servidores,
+canales de voz y pantalla compartida (Fase C), ocultar la IP mediante repetidores (Fase D), exportar/importar
+y recuperar la cuenta, actualización automática del programa y una revisión de seguridad externa.
+El orden y los motivos están en [ROADMAP.md](ROADMAP.md).
 
 ## Licencia y colaboración
 
