@@ -49,7 +49,7 @@ jobs:
           } | Out-File -Encoding ascii dist/SHA256SUMS.txt
 
       - name: Certificar procedencia (qué código y qué proceso crearon el archivo)
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: 'dist/*.exe'
         continue-on-error: true   # solo funciona en repositorios públicos
