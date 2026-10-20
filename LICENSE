@@ -1,5 +1,5 @@
-PrivChat - chat, llamadas y servidores entre computadores, sin servidor central
-Copyright (C) 2026 Colaboradores de PrivChat
+SigilChat - chat, llamadas y servidores entre computadores, sin servidor central
+Copyright (C) 2026 Sm4rthur y asociados
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published
@@ -13,18 +13,3 @@ GNU Affero General Public License for more details.
 
 You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
-------------------------------------------------------------------------
-NOTA PARA QUIEN PUBLIQUE ESTE PROYECTO (borrar al completar)
-
-Este archivo contiene el aviso oficial de la licencia AGPL-3.0-or-later.
-Para que GitHub la reconozca y el texto quede completo y sin alteraciones,
-reemplaza TODO el contenido de este archivo por el texto oficial:
-
-  En GitHub: Add file > Create new file > nombre "LICENSE" >
-  botón "Choose a license template" > "GNU Affero General Public License v3.0"
-  (o descarga https://www.gnu.org/licenses/agpl-3.0.txt)
-
-Después, escribe el nombre real de quien tiene el copyright en la línea de
-"Copyright (C) 2026 ..." y conserva el aviso de arriba en el README.
-------------------------------------------------------------------------
