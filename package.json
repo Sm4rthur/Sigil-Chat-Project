@@ -17,7 +17,7 @@
   "devDependencies": {
     "@electron/fuses": "^2.1.0",
     "electron": "^44.0.0",
-    "electron-builder": "^26.4.0"
+    "electron-builder": "^26.18.0"
   },
   "author": "Colaboradores de PrivChat",
   "build": {
